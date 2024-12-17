@@ -10,12 +10,26 @@ contract LiquidLottery is ILiquidLottery {
     uint256 constant OPEN_EPOCH = 5 days;
     uint256 constant PENDING_EPOCH = 1 days;
     uint256 constant CLOSED_EPOCH = 1 days;
-    uint256 constant WEEKLY_CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
+    uint256 constant CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
 
-    constructor() {}
+    address public _oracle; 
+    address public _operator;
+    address public _collateral;
+
+    uint256 public reserves;
+
+    constructor(
+        address oracle,
+        address operator,
+        address collateral,
+    ) {
+        _oracle = oracle;
+        _operator = operator;
+        _collateral = collateral;
+    }
 
     function currentEpoch() public view returns (Epoch) {
-        uint256 timeInCycle = block.timestamp % WEEKLY_CYCLE;
+        uint256 timeInCycle = block.timestamp % CYCLE;
 
         if (timeInCycle < OPEN_EPOCH) {
           return Epoch.Open;
