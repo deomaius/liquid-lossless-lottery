@@ -2,15 +2,15 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract TaxableERC20Token is ERC20 {
+contract TaxableERC20 is ERC20 {
     
-    address public _taxxer;
+    address public _collector;
     address public _controller;
 
     uint256 public _taxPerTransfer;
 
     event TaxRateUpdated(uint256 newTaxRate);
-    event TaxReceiverUpdated(address newTaxReceiver);
+    event TaxCollectorUpdated(address newCollector);
 
     modifier onlyController() {
       require(msg.sender === _controller, "Invalid controller");
@@ -25,8 +25,6 @@ contract TaxableERC20Token is ERC20 {
     ) 
         ERC20(name, symbol) 
     {
-        require(taxRate <= 10000, "Tax rate cannot exceed 100%");
-
         _controller = msg.sender;
         _taxPerTransfer = taxRate;
 
@@ -52,22 +50,20 @@ contract TaxableERC20Token is ERC20 {
         super._transfer(sender, recipient, transferAmount);
         
         if (taxAmount > 0) {
-            super._transfer(sender, _taxxer, taxAmount);
+            super._transfer(sender, _collector, taxAmount);
         }
     }
 
-    function setTaxRate(uint256 newTaxRate) external onlyController {
-        require(newTaxRate <= 10000, "Tax rate cannot exceed 100%");
-
+    function setTax(uint256 newTaxRate) external onlyController {
         _taxPerTransfer = newTaxRate;
 
         emit TaxRateUpdated(newTaxRate);
     }
 
-    function setTaxReceiver(address reciever) external onlyController {
-        _taxxer = reciever;
+    function setCollector(address collector) external onlyController {
+        _collector = collector;
 
-        emit TaxReceiverUpdated(newTaxReceiver);
+        emit TaxCollectorUpdated(collector);
     }
 
 }
