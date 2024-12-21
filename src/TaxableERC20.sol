@@ -9,7 +9,10 @@ contract TaxableERC20 is ERC20 {
 
     uint256 public _transferTax;
 
+    mapping (address => bool) public _exempt;
+
     event TaxRateUpdated(uint256 newTaxRate);
+    event TaxExemptionAdded(address exemptAddress);
     event TaxCollectorUpdated(address newCollector);
 
     constructor(
@@ -22,6 +25,9 @@ contract TaxableERC20 is ERC20 {
     {
         _transferTax = taxRate;
         _controller = msg.sender;
+
+        _exempt[msg.sender] = true;
+        _exempt[address(0)] = true;
 
         _mint(msg.sender, initialSupply);
     }
@@ -49,9 +55,9 @@ contract TaxableERC20 is ERC20 {
         super._spendAllowance(from, _msgSender(), amount);
         super._transfer(from, to, amount - tax);
 
-        bool taxable = to != _controller && from != _controller;
+        bool taxable = !_exempt[from] && tax > 0;
 
-        if (taxable && tax > 0) super._transfer(from, _collector, tax);
+        if (taxable) super._transfer(from, _collector, tax);
 
         return true;
     }
@@ -66,6 +72,12 @@ contract TaxableERC20 is ERC20 {
         _collector = collector;
 
         emit TaxCollectorUpdated(collector);
+    }
+
+    function setTaxExemption(address account) external onlyController {
+        _exempt[account] = true;
+
+        emit TaxExemptionAdded(account);
     }
 
 }
