@@ -13,6 +13,7 @@ contract LiquidLottery is ILiquidLottery {
     uint8 public _bucketId;
     uint256 public _locked;
     uint256 public _reserves;
+    uint256 public _premium;
     uint256 public _lastBlockSync;
 
     IERC20 public _ticket;
@@ -63,6 +64,11 @@ contract LiquidLottery is ILiquidLottery {
         _;
     }
 
+    modifier syncBlock() {
+       if (_lastBlockSync != 0) delete _lastBlockSync;
+       _;
+    }
+
     function currentEpoch() public view returns (Epoch) {
         uint256 timeInCycle = block.timestamp % CYCLE;
 
@@ -78,8 +84,8 @@ contract LiquidLottery is ILiquidLottery {
     function sync() public payable onlyCycle(Epoch.Closed) {
         require(_lastBlockSync == 0, "Already synced");
 
-        _lastBlockSync = block.timestamp;
         _oracle.randomize{ value: msg.value }(); 
+        _lastBlockSync = block.number;
 
         emit Sync(block.timestamp, 0);
     }
@@ -91,16 +97,42 @@ contract LiquidLottery is ILiquidLottery {
         uint8 index = uint8(uint256(entropy) % BUCKET_COUNT);
 
         _bucketId = index > 9 ? index - 1 : index;
-        _lastBlockSync = 0;
+
+        Pot storage pot = _pot[_lastBlockSync][_bucketId];
+
+        require(pot.prize == 0, "Already rolled");
+
+        // TODO: Premium allocations
+        pot.prize += _premium;
 
         emit Roll(block.timestamp, entropy, index, 0);
     }
 
-    function mint(uint256 amount) public onlyCycle(Epoch.Open) {}
+    function mint(uint256 amount) public onlyCycle(Epoch.Open) public syncBlock {}
 
-    function burn(uint256 amount) public onlyCycle(Epoch.Pending) {}
+    function burn(uint256 amount) public onlyCycle(Epoch.Pending) public syncBlock {}
  
-    function claim(uint8 index) public onlyCycle(Epoch.Closed) {}
+    function claim(uint8 index) public onlyCycle(Epoch.Closed) {
+        Pot storage pot = _pot[_lastBlockSync][index];
+        Stake storage slot = _stakes[msg.sender][index];
+
+        uint256 staked = _buckets[_bucketId].totalOdds;
+
+        require(index == _bucketId, "Invalid bucket");
+        require(staked > 0, "No bucket stakes active");
+        require(slot.deposit > 0, "Insufficient stake"); 
+        require(!pot.claim[msg.sender], "Already claimed");
+
+        uint256 odds = slot.deposit * 1e18 / staked;
+        uint256 reward = odds * pot.prize / 1e18;
+
+        pot.redeemed += reward; 
+        pot.claim[msg.sender] = true;
+
+        _collateral.transferFrom(address(this), msg.sender, reward); 
+
+        emit Claim(msg.sender, index, reward);
+    }
 
     function stake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
         Stake storage slot = _stakes[msg.sender][index];

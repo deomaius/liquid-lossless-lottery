@@ -10,8 +10,14 @@ interface ILiquidLottery {
       uint256 totalOdds;
     } 
 
+    struct Pot {
+      uint256 prize; 
+      uint256 redeemed;
+      mapping (address => bool) claim;
+    }
+
     struct Stake {
-      uint256 odds; 
+      uint256 odds;
       uint256 deposit;
     }
 
