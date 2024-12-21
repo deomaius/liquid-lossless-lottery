@@ -39,19 +39,19 @@ contract TaxableERC20 is ERC20 {
         super._burn(from, amount);
     }
 
-    function _transfer(
-        address sender, 
-        address recipient, 
-        uint256 amount
-    ) internal virtual override {
-        uint256 taxAmount = (amount * _transferTax) / 10000;
-        uint256 transferAmount = amount - taxAmount;
+    function transfer(address to,  uint256 amount) virtual override public returns (bool) {
+        return transferFrom(msg.sender, to, amount);
+    }
 
-        super._transfer(sender, recipient, transferAmount);
-        
-        if (taxAmount > 0) {
-            super._transfer(sender, _collector, taxAmount);
-        }
+    function transferFrom(address from, address to, uint256 amount) virtual override public returns (bool) {
+        uint256 tax = (amount * _transferTax) / 1e18;
+
+        super._spendAllowance(from, _msgSender(), amount);
+        super._transfer(from, to, amount - tax);
+
+        if (tax > 0) super._transfer(from, _collector, tax);
+
+        return true;
     }
 
     function setTax(uint256 newTaxRate) external onlyController {

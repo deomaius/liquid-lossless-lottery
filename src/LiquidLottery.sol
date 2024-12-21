@@ -48,8 +48,8 @@ contract LiquidLottery is ILiquidLottery {
         _buckets[8] = Bucket(80e16, 90e16, 0);       // 80-90
         _buckets[9] = Bucket(90e16, 1e18, 0);        // 90-100
 
-        _collateral = IERC20(_collateral);
-        _oracle = IWitnetRandomnessV2(_oracle);
+        _collateral = IERC20(collateral);
+        _oracle = IWitnetRandomnessV2(oracle);
         _ticket = IERC20(address(new TaxableERC20(5e16, name, symbol, 0)));
     }
 
@@ -75,14 +75,6 @@ contract LiquidLottery is ILiquidLottery {
         }
     }
 
-    function sync() public onlyCycle(Epoch.Closed){
-        require(_lastBlockSync == 0, "Already synced");
-
-        _oracle.randomize{ value: msg.value }();
-      
-        _lastBlockSync = block.timestamp;
-    }
-
     function roll() public onlyCycle(Epoch.Closed) {
         require(_lastBlockSync != 0, "Already rolled");
 
@@ -91,6 +83,14 @@ contract LiquidLottery is ILiquidLottery {
 
         _bucketId = index > 9 ? index - 1 : index;
         _lastBlockSync = 0;
+    }
+
+    function sync() public payable onlyCycle(Epoch.Closed) {
+        require(_lastBlockSync == 0, "Already synced");
+
+        _oracle.randomize{ value: msg.value }();
+      
+        _lastBlockSync = block.timestamp;
     }
 
     function mint(uint256 amount) public onlyCycle(Epoch.Open) {}
