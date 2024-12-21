@@ -12,11 +12,6 @@ contract TaxableERC20 is ERC20 {
     event TaxRateUpdated(uint256 newTaxRate);
     event TaxCollectorUpdated(address newCollector);
 
-    modifier onlyController() {
-      require(msg.sender == _controller, "Invalid controller");
-      _;
-    }
-
     constructor(
         uint256 taxRate,
         string memory name, 
@@ -29,6 +24,11 @@ contract TaxableERC20 is ERC20 {
         _controller = msg.sender;
 
         _mint(msg.sender, initialSupply);
+    }
+
+    modifier onlyController() {
+        require(msg.sender == _controller, "Invalid controller");
+        _;
     }
 
     function mint(address to, uint256 amount) public onlyController {

@@ -11,7 +11,6 @@ interface ILiquidLottery {
     } 
 
     struct Stake {
-      uint8 bucket;
       uint256 odds; 
       uint256 deposit;
     }
