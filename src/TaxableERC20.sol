@@ -1,19 +1,19 @@
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract TaxableERC20 is ERC20 {
     
     address public _collector;
     address public _controller;
 
-    uint256 public _taxPerTransfer;
+    uint256 public _transferTax;
 
     event TaxRateUpdated(uint256 newTaxRate);
     event TaxCollectorUpdated(address newCollector);
 
     modifier onlyController() {
-      require(msg.sender === _controller, "Invalid controller");
+      require(msg.sender == _controller, "Invalid controller");
       _;
     }
 
@@ -25,18 +25,18 @@ contract TaxableERC20 is ERC20 {
     ) 
         ERC20(name, symbol) 
     {
+        _transferTax = taxRate;
         _controller = msg.sender;
-        _taxPerTransfer = taxRate;
 
         _mint(msg.sender, initialSupply);
     }
 
-    function mint(address to, address amount) public onlyController {
+    function mint(address to, uint256 amount) public onlyController {
         super._mint(to, amount);
     }
 
-    function burn(address from, address amount) public onlyController {
-        super.burn(to, amount);
+    function burn(address from, uint256 amount) public onlyController {
+        super._burn(from, amount);
     }
 
     function _transfer(
@@ -44,7 +44,7 @@ contract TaxableERC20 is ERC20 {
         address recipient, 
         uint256 amount
     ) internal virtual override {
-        uint256 taxAmount = (amount * taxRate) / 10000;
+        uint256 taxAmount = (amount * _transferTax) / 10000;
         uint256 transferAmount = amount - taxAmount;
 
         super._transfer(sender, recipient, transferAmount);
@@ -55,7 +55,7 @@ contract TaxableERC20 is ERC20 {
     }
 
     function setTax(uint256 newTaxRate) external onlyController {
-        _taxPerTransfer = newTaxRate;
+        _transferTax = newTaxRate;
 
         emit TaxRateUpdated(newTaxRate);
     }
