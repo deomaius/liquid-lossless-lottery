@@ -49,7 +49,9 @@ contract TaxableERC20 is ERC20 {
         super._spendAllowance(from, _msgSender(), amount);
         super._transfer(from, to, amount - tax);
 
-        if (tax > 0) super._transfer(from, _collector, tax);
+        bool taxable = to != _controller && from != _controller;
+
+        if (taxable && tax > 0) super._transfer(from, _collector, tax);
 
         return true;
     }

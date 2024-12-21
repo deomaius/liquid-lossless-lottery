@@ -75,6 +75,15 @@ contract LiquidLottery is ILiquidLottery {
         }
     }
 
+    function sync() public payable onlyCycle(Epoch.Closed) {
+        require(_lastBlockSync == 0, "Already synced");
+
+        _lastBlockSync = block.timestamp;
+        _oracle.randomize{ value: msg.value }(); 
+
+        emit Sync(block.timestamp, 0);
+    }
+
     function roll() public onlyCycle(Epoch.Closed) {
         require(_lastBlockSync != 0, "Already rolled");
 
@@ -83,14 +92,8 @@ contract LiquidLottery is ILiquidLottery {
 
         _bucketId = index > 9 ? index - 1 : index;
         _lastBlockSync = 0;
-    }
 
-    function sync() public payable onlyCycle(Epoch.Closed) {
-        require(_lastBlockSync == 0, "Already synced");
-
-        _oracle.randomize{ value: msg.value }();
-      
-        _lastBlockSync = block.timestamp;
+        emit Roll(block.timestamp, entropy, index, 0);
     }
 
     function mint(uint256 amount) public onlyCycle(Epoch.Open) {}
@@ -110,6 +113,8 @@ contract LiquidLottery is ILiquidLottery {
         _buckets[index].totalOdds += amount;
 
         _ticket.transferFrom(msg.sender, address(this), amount);
+
+        emit Lock(msg.sender, index, amount);
     }
 
     function withdraw(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
@@ -125,6 +130,8 @@ contract LiquidLottery is ILiquidLottery {
         _buckets[index].totalOdds -= amount;
 
         _ticket.transferFrom(address(this), msg.sender, amount);
+
+        emit Unlock(msg.sender, index, amount);
     } 
 
 }
