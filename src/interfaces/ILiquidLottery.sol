@@ -7,18 +7,13 @@ interface ILiquidLottery {
     struct Bucket {
       uint256 lowerBound;
       uint256 upperBound;
-      uint256 totalOdds;
+      uint256 totalDeposits;
     } 
 
     struct Pot {
       uint256 prize; 
       uint256 redeemed;
       mapping (address => bool) claim;
-    }
-
-    struct Stake {
-      uint256 odds;
-      uint256 deposit;
     }
 
     event Sync(uint256 indexed timestamp, uint256 prize);
