@@ -2,6 +2,9 @@ pragma solidity ^0.8.20;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { IWitnetRandomnessV2 } from "@interfaces/IWitnetRandomnessV2.sol";
+import { IAavePoolProvider } from "@interfaces/IAavePoolProvider.sol";
+import { IAaveDataProvider } from "@interfaces/IAaveDataProvider.sol";
+import { IAaveLendingPool } from "@interfaces/IAaveLendingPool.sol";
 import { ILiquidLottery } from "@interfaces/ILiquidLottery.sol";
 
 import { TaxableERC20 } from "./TaxableERC20.sol";
@@ -22,6 +25,7 @@ contract LiquidLottery is ILiquidLottery {
     IERC20 public _ticket;
     IERC20 public _voucher;
     IERC20 public _collateral;
+    IAaveLendingPool public _pool;
     IWitnetRandomnessV2 public _oracle;
 
     mapping (uint8 => Bucket) public _buckets;
@@ -35,17 +39,15 @@ contract LiquidLottery is ILiquidLottery {
     uint256 constant public CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
 
     constructor(
+        address pool,
         address oracle,
         address operator,
-        address voucher,
+        address provider,
         address collateral,
         string memory name,
         string memory symbol
     ) {
-        _decimalT = 1e18;
         _operator = operator;
-        _decimalV = IERC20(voucher).decimals();
-        _decimalC = IERC20(collateral).decimals();
 
         _buckets[0] = Bucket(0, 10e16, 0);           // 0-10
         _buckets[1] = Bucket(10e16, 20e16, 0);       // 10-20
@@ -60,7 +62,15 @@ contract LiquidLottery is ILiquidLottery {
 
         _collateral = IERC20(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
+        _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
         _ticket = IERC20(address(new TaxableERC20(5e16, name, symbol, 0)));
+
+        (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
+
+        _voucher = IERC20(voucher);
+        _decimalV = _voucher.decimals();
+        _decimalC = _collateral.decimals();
+        _decimalT = 1e18;
     }
 
     modifier onlyCycle(Epoch e) {
