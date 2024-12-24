@@ -22,7 +22,7 @@ contract TaxableERC20 is ERC20 {
     ) 
         ERC20(name, symbol) 
     {
-        _transferTax = taxRate;
+        _tax = taxRate;
         _controller = msg.sender;
 
         _exempt[msg.sender] = true;
@@ -47,10 +47,10 @@ contract TaxableERC20 is ERC20 {
     function rebate(address to, uint256 amount) public onlyController {
         require(to != address(0), "Cannot rebate to zero address");
         require(amount > 0, "Rebate amount must be greater than zero");
-        require(_rebates => amount, "Insufficient taxes");
+        require(_rebates >= amount, "Insufficient taxes");
 
-        _rebates =- amount;
-        _mint(msg.sender, to, amount);
+        _rebates -= amount;
+        _mint(to, amount);
 
         emit TaxRebate(to, amount);
     }

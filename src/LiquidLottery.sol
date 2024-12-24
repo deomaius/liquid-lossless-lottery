@@ -1,11 +1,11 @@
 pragma solidity ^0.8.20;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { IWitnetRandomnessV2 } from "@interfaces/IWitnetRandomnessV2.sol";
 import { IAavePoolProvider } from "@interfaces/IAavePoolProvider.sol";
 import { IAaveDataProvider } from "@interfaces/IAaveDataProvider.sol";
 import { IAaveLendingPool } from "@interfaces/IAaveLendingPool.sol";
 import { ILiquidLottery } from "@interfaces/ILiquidLottery.sol";
+import { IERC20Base } from "@interfaces/IERC20Base.sol";
 
 import { TaxableERC20 } from "./TaxableERC20.sol";
 
@@ -22,14 +22,14 @@ contract LiquidLottery is ILiquidLottery {
     uint256 public _premium;
     uint256 public _lastBlockSync;
 
-    IERC20 public _ticket;
-    IERC20 public _voucher;
-    IERC20 public _collateral;
+    IERC20Base public _ticket;
+    IERC20Base public _voucher;
+    IERC20Base public _collateral;
     IAaveLendingPool public _pool;
     IWitnetRandomnessV2 public _oracle;
 
     mapping (uint8 => Bucket) public _buckets;
-    mapping (uint256 => mapping (uint8 => uint)) public _pots;
+    mapping (uint256 => mapping (uint8 => Pot)) public _pots;
     mapping (address => mapping (uint8 => uint)) public _stakes;
 
     uint256 constant public BUCKET_COUNT = 10;
@@ -61,17 +61,17 @@ contract LiquidLottery is ILiquidLottery {
         _buckets[8] = Bucket(80e16, 90e16, 0);       // 80-90
         _buckets[9] = Bucket(90e16, 1e18, 0);        // 90-100
 
-        _collateral = IERC20(collateral);
+        _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
-        _ticket = IERC20(address(new TaxableERC20(5e16, name, symbol, 0)));
+        _ticket = IERC20Base(address(new TaxableERC20(5e16, name, symbol, 0)));
 
         (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
 
-        _voucher = IERC20(voucher);
+        _voucher = IERC20Base(voucher);
         _decimalV = _voucher.decimals();
         _decimalC = _collateral.decimals();
-        _decimalT = 1e18;
+        _decimalT = 18;
     }
 
     modifier onlyCycle(Epoch e) {
@@ -89,17 +89,10 @@ contract LiquidLottery is ILiquidLottery {
        _;
     }
 
-    function ticketPrice() public view return (uint256) {
-        uint256 reserves = scale(_reserves, _decimalC, 18);
-        uint256 multiplier = TICKET_BASE_PRICE * reserves / 1e24;
-
-        return TICKET_BASE_PRICE + multiplier; 
-    }
-
     function currentPremium() public view returns (uint256) {
         uint256 interest = _voucher.balanceOf(address(this));
 
-        if (premiumEarned > _reserves) return interest - _reserves;
+        if (interest > _reserves) return interest - _reserves;
         
         return  0;
     }
@@ -149,8 +142,7 @@ contract LiquidLottery is ILiquidLottery {
         _collateral.approve(address(_pool), amount);      
         _pool.supply(address(_collateral), amount, address(this), 0);
 
-        uint256 price = ticketPrice();
-        uint256 tickets = amount * 1e18 / price;
+        uint256 tickets = amount * 1e18 / TICKET_BASE_PRICE;
 
         _ticket.mint(msg.sender, tickets);
         _reserves += amount;
@@ -162,11 +154,12 @@ contract LiquidLottery is ILiquidLottery {
         uint256 reserves = scale(_reserves, _decimalC, 18);
         uint256 proportion = amount * 1e18 / _ticket.totalSupply();
         uint256 alloc = proportion * reserves / 1e18;
-        uint256 reciept = scale(alloc, 18, _decimalC);
-
-        uint256 deposit = pool.withdraw(address(_collateral), alloc, address(this));
+        uint256 collateral = scale(alloc, 18, _decimalC);
 
         _ticket.burn(msg.sender, amount);
+
+        uint256 deposit = _pool.withdraw(address(_collateral), collateral, address(this));
+
         _collateral.transferFrom(address(this), msg.sender, deposit);
         _reserves -= deposit;
 
