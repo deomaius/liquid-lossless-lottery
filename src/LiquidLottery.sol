@@ -36,6 +36,7 @@ contract LiquidLottery is ILiquidLottery {
     uint256 constant public OPEN_EPOCH = 5 days;
     uint256 constant public PENDING_EPOCH = 1 days;
     uint256 constant public CLOSED_EPOCH = 1 days;
+    uint256 constant public TICKET_BASE_PRICE = 1000 wei;
     uint256 constant public CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
 
     constructor(
@@ -88,6 +89,21 @@ contract LiquidLottery is ILiquidLottery {
        _;
     }
 
+    function ticketPrice() public view return (uint256) {
+        uint256 reserves = scale(_reserves, _decimalC, 18);
+        uint256 multiplier = TICKET_BASE_PRICE * reserves / 1e24;
+
+        return TICKET_BASE_PRICE + multiplier; 
+    }
+
+    function currentPremium() public view returns (uint256) {
+        uint256 interest = _voucher.balanceOf(address(this));
+
+        if (premiumEarned > _reserves) return interest - _reserves;
+        
+        return  0;
+    }
+
     function currentEpoch() public view returns (Epoch) {
         uint256 timeInCycle = block.timestamp % CYCLE;
 
@@ -114,22 +130,48 @@ contract LiquidLottery is ILiquidLottery {
 
         bytes32 entropy = _oracle.fetchRandomnessAfter(_lastBlockSync);
         uint8 index = uint8(uint256(entropy) % BUCKET_COUNT);
+        uint8 bucketId = index > 9 ? index - 1 : index;
 
-        _bucketId = index > 9 ? index - 1 : index;
-
-        Pot storage pot = _pots[_lastBlockSync][_bucketId];
+        Pot storage pot = _pots[_lastBlockSync][bucketId];
 
         require(pot.prize == 0, "Already rolled");
 
         // TODO: Premium allocations
-        pot.prize += _premium;
+        pot.prize += currentPremium();
 
-        emit Roll(block.timestamp, entropy, index, 0);
+        _bucketId = bucketId;
+
+        emit Roll(block.timestamp, entropy, bucketId, 0);
     }
 
-    function mint(uint256 amount) public onlyCycle(Epoch.Open) syncBlock {}
+    function mint(uint256 amount) public onlyCycle(Epoch.Open) syncBlock {
+        _collateral.transferFrom(msg.sender, address(this), amount);
+        _collateral.approve(address(_pool), amount);      
+        _pool.supply(address(_collateral), amount, address(this), 0);
 
-    function burn(uint256 amount) public onlyCycle(Epoch.Pending) syncBlock {}
+        uint256 price = ticketPrice();
+        uint256 tickets = amount * 1e18 / price;
+
+        _ticket.mint(msg.sender, tickets);
+        _reserves += amount;
+
+        emit Enter(msg.sender, amount, tickets);
+    }
+
+    function burn(uint256 amount) public onlyCycle(Epoch.Pending) syncBlock {
+        uint256 reserves = scale(_reserves, _decimalC, 18);
+        uint256 proportion = amount * 1e18 / _ticket.totalSupply();
+        uint256 alloc = proportion * reserves / 1e18;
+        uint256 reciept = scale(alloc, 18, _decimalC);
+
+        uint256 deposit = pool.withdraw(address(_collateral), alloc, address(this));
+
+        _ticket.burn(msg.sender, amount);
+        _collateral.transferFrom(address(this), msg.sender, deposit);
+        _reserves -= deposit;
+
+        emit Exit(msg.sender, deposit, amount);
+    }
  
     function claim(uint8 index) public onlyCycle(Epoch.Closed) {
         Pot storage pot = _pots[_lastBlockSync][index];
@@ -143,8 +185,8 @@ contract LiquidLottery is ILiquidLottery {
         require(!pot.claim[msg.sender], "Already claimed");
 
         uint256 alloc = deposit * 1e18 / staked;
-        uint256 prize = interpolate(pot.prize, _decimalC, 18);
-        uint256 reward = interpolate(alloc * prize / 1e18, 18, _decimalC);
+        uint256 prize = scale(pot.prize, _decimalC, 18);
+        uint256 reward = scale(alloc * prize / 1e18, 18, _decimalC);
 
         pot.redeemed += reward; 
         pot.claim[msg.sender] = true;
@@ -178,7 +220,7 @@ contract LiquidLottery is ILiquidLottery {
         emit Unlock(msg.sender, index, amount);
     }
 
-    function interpolate(uint256 amount, uint8 d1, uint8 d2) internal pure returns (uint256) {
+    function scale(uint256 amount, uint8 d1, uint8 d2) internal pure returns (uint256) {
       if (d1 < d2) {
         return amount * (10 ** uint256(d2 - d1));
       } else if (d1 > d2) {

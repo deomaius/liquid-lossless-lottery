@@ -16,7 +16,7 @@ interface ILiquidLottery {
       mapping (address => bool) claim;
     }
 
-    event Sync(uint256 indexed timestamp, uint256 prize);
+    event Sync(uint256 indexed block, uint256 prize);
 
     event Lock(address indexed account, uint8 bucket, uint256 amount);
 
@@ -24,6 +24,10 @@ interface ILiquidLottery {
 
     event Unlock(address indexed account, uint8 bucket, uint256 amount);
 
-    event Roll(uint256 indexed timestamp, bytes32 entropy, uint8 bucket, uint256 prize);
+    event Enter(address indexed account, uint256 collateral, uint256 tickets);
+
+    event Exit(address indexed account, uint256 tickets, uint256 collateral);
+
+    event Roll(uint256 indexed block, bytes32 entropy, uint8 bucket, uint256 prize);
 
 }
