@@ -16,6 +16,8 @@ interface ILiquidLottery {
       mapping (address => bool) claim;
     }
 
+    event Funnel(uint256 amount);
+
     event Sync(uint256 indexed block, uint256 prize);
 
     event Lock(address indexed account, uint8 bucket, uint256 amount);

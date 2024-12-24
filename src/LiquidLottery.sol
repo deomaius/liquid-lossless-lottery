@@ -17,9 +17,10 @@ contract LiquidLottery is ILiquidLottery {
     uint8 public _decimalV;
     uint8 public _decimalC;
     uint8 public _decimalT;
+    uint256 public _opfees;
     uint256 public _locked;
-    uint256 public _reserves;
     uint256 public _premium;
+    uint256 public _reserves;
     uint256 public _lastBlockSync;
 
     IERC20Base public _ticket;
@@ -28,8 +29,8 @@ contract LiquidLottery is ILiquidLottery {
     IAaveLendingPool public _pool;
     IWitnetRandomnessV2 public _oracle;
 
+    mapping (uint256 => Pot) public _pots;
     mapping (uint8 => Bucket) public _buckets;
-    mapping (uint256 => mapping (uint8 => Pot)) public _pots;
     mapping (address => mapping (uint8 => uint)) public _stakes;
 
     uint256 constant public BUCKET_COUNT = 10;
@@ -90,10 +91,13 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     function currentPremium() public view returns (uint256) {
-        uint256 interest = _voucher.balanceOf(address(this));
+        uint256 interest = _voucher.balanceOf(address(this)) - _opfees;
+        uint256 reserves = scale(_reserves, _decimalC, _decimalV);
 
-        if (interest > _reserves) return interest - _reserves;
-        
+        if (interest > reserves) {
+          return scale(interest - reserves, _decimalV, 18);
+        } 
+
         return  0;
     }
 
@@ -112,25 +116,31 @@ contract LiquidLottery is ILiquidLottery {
     function sync() public payable onlyCycle(Epoch.Closed) {
         require(_lastBlockSync == 0, "Already synced");
 
+        uint256 premium = currentPremium();
+        uint256 operatorShare = (premium * 1000) / 10000; // 10%
+        uint256 ticketShare = (premium * 2000) / 10000;   // 20% 
+        uint256 prizeShare = premium - operatorShare - ticketShare; // 70%
+
+        ticketShare = scale(ticketShare, _decimalV, _decimalC);
+
         _oracle.randomize{ value: msg.value }(); 
+
+        _pots[block.number].prize = prizeShare;
         _lastBlockSync = block.number;
+        _opfees += operatorShare;
+        _reserves += ticketShare;
 
         emit Sync(block.timestamp, 0);
     }
 
     function roll() public onlyCycle(Epoch.Closed) {
         require(_lastBlockSync != 0, "Already rolled");
-
+ 
         bytes32 entropy = _oracle.fetchRandomnessAfter(_lastBlockSync);
         uint8 index = uint8(uint256(entropy) % BUCKET_COUNT);
         uint8 bucketId = index > 9 ? index - 1 : index;
 
-        Pot storage pot = _pots[_lastBlockSync][bucketId];
-
-        require(pot.prize == 0, "Already rolled");
-
-        // TODO: Premium allocations
-        pot.prize += currentPremium();
+        require(_pots[_lastBlockSync].prize != 0, "Not yet synced");
 
         _bucketId = bucketId;
 
@@ -167,9 +177,9 @@ contract LiquidLottery is ILiquidLottery {
     }
  
     function claim(uint8 index) public onlyCycle(Epoch.Closed) {
-        Pot storage pot = _pots[_lastBlockSync][index];
+        Pot storage pot = _pots[_lastBlockSync];
 
-        uint256 staked = _buckets[_bucketId].totalDeposits;
+        uint256 staked = _buckets[index].totalDeposits;
         uint256 deposit = _stakes[msg.sender][index];
 
         require(index == _bucketId, "Invalid bucket");
@@ -178,13 +188,15 @@ contract LiquidLottery is ILiquidLottery {
         require(!pot.claim[msg.sender], "Already claimed");
 
         uint256 alloc = deposit * 1e18 / staked;
-        uint256 prize = scale(pot.prize, _decimalC, 18);
-        uint256 reward = scale(alloc * prize / 1e18, 18, _decimalC);
+        uint256 prize = scale(pot.prize - pot.redeemed, _decimalV, 18);
+        uint256 reward = scale(alloc * prize / 1e18, 18, _decimalV);
 
         pot.redeemed += reward; 
         pot.claim[msg.sender] = true;
 
-        _collateral.transferFrom(address(this), msg.sender, reward); 
+        uint256 share = _pool.withdraw(address(_collateral), reward, address(this));
+
+        _collateral.transferFrom(address(this), msg.sender, share); 
 
         emit Claim(msg.sender, index, reward);
     }
@@ -214,12 +226,23 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     function scale(uint256 amount, uint8 d1, uint8 d2) internal pure returns (uint256) {
-      if (d1 < d2) {
-        return amount * (10 ** uint256(d2 - d1));
-      } else if (d1 > d2) {
-        return amount / (10 ** uint256(d1 - d2));
-      }
-      return amount;
+        if (d1 < d2) {
+          return amount * (10 ** uint256(d2 - d1));
+        } else if (d1 > d2) {
+          return amount / (10 ** uint256(d1 - d2));
+        }
+        return amount;
+    }
+
+    function funnel() public {
+        require(_opfees > 0, "Not enough fees to funnel");
+        
+        uint256 fees = _pool.withdraw(address(_collateral), _opfees, address(this));
+
+        _opfees = 0;
+        _collateral.transferFrom(address(this), _operator, fees);
+
+        emit Funnel(fees);
     }
 
 }
