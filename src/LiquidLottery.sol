@@ -86,7 +86,10 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     modifier syncBlock() {
-       if (_lastBlockSync != 0) delete _lastBlockSync;
+       if (_lastBlockSync != 0) {
+         delete _pots[_lastBlockSync];
+         delete _lastBlockSync;
+       }
        _;
     }
 
