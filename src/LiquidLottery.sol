@@ -34,11 +34,11 @@ contract LiquidLottery is ILiquidLottery {
     mapping (address => mapping (uint8 => uint)) public _stakes;
 
     uint256 constant public BUCKET_COUNT = 10;
-    uint256 constant public OPEN_EPOCH = 5 days;
-    uint256 constant public PENDING_EPOCH = 1 days;
-    uint256 constant public CLOSED_EPOCH = 1 days;
-    uint256 constant public TICKET_BASE_PRICE = 1000 wei;
+    uint256 constant public OPEN_EPOCH = 4 days;
+    uint256 constant public CLOSED_EPOCH = 12 hours;
+    uint256 constant public PENDING_EPOCH = 2 days + 12 hours; 
     uint256 constant public CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
+    uint256 constant public TICKET_BASE_PRICE = 1000 wei;
 
     constructor(
         address pool,
@@ -232,7 +232,9 @@ contract LiquidLottery is ILiquidLottery {
         if (d1 < d2) {
           return amount * (10 ** uint256(d2 - d1));
         } else if (d1 > d2) {
-          return amount / (10 ** uint256(d1 - d2));
+          uint256 f =  (10 ** uint256(d1 - d2);
+
+          return (amount + f / 2) / f;
         }
         return amount;
     }
