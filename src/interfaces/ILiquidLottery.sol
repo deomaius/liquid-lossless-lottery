@@ -4,17 +4,16 @@ interface ILiquidLottery {
 
     enum Epoch { Pending, Open, Closed }
 
-    struct Bucket {
-      uint256 lowerBound;
-      uint256 upperBound;
-      uint256 totalDeposits;
+    struct Stake {
+      uint256 deposit; 
+      uint256 checkpoint;
     } 
 
-    struct Pot {
-      uint256 prize; 
-      uint256 redeemed;
-      mapping (address => bool) claim;
-    }
+    struct Bucket {
+      uint256 totalRewards;
+      uint256 totalDeposits;
+      uint256 rewardCheckpoint;
+    } 
 
     event Funnel(uint256 amount);
 

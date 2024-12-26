@@ -13,13 +13,10 @@ contract LiquidLottery is ILiquidLottery {
 
     address public _operator;
 
-    uint8 public _bucketId;
     uint8 public _decimalV;
     uint8 public _decimalC;
     uint8 public _decimalT;
     uint256 public _opfees;
-    uint256 public _locked;
-    uint256 public _premium;
     uint256 public _reserves;
     uint256 public _lastBlockSync;
 
@@ -29,9 +26,8 @@ contract LiquidLottery is ILiquidLottery {
     IAaveLendingPool public _pool;
     IWitnetRandomnessV2 public _oracle;
 
-    mapping (uint256 => Pot) public _pots;
     mapping (uint8 => Bucket) public _buckets;
-    mapping (address => mapping (uint8 => uint)) public _stakes;
+    mapping (address => mapping (uint8 => Stake)) public _stakes;
 
     uint256 constant public BUCKET_COUNT = 10;
     uint256 constant public OPEN_EPOCH = 4 days;
@@ -51,17 +47,7 @@ contract LiquidLottery is ILiquidLottery {
     ) {
         _operator = operator;
 
-        _buckets[0] = Bucket(0, 10e16, 0);           // 0-10
-        _buckets[1] = Bucket(10e16, 20e16, 0);       // 10-20
-        _buckets[2] = Bucket(20e16, 30e16, 0);       // 20-30
-        _buckets[3] = Bucket(30e16, 40e16, 0);       // 30-40
-        _buckets[4] = Bucket(40e16, 50e16, 0);       // 90-50
-        _buckets[5] = Bucket(50e16, 60e16, 0);       // 50-60
-        _buckets[6] = Bucket(60e16, 70e16, 0);       // 60-70
-        _buckets[7] = Bucket(70e16, 80e16, 0);       // 70-80
-        _buckets[8] = Bucket(80e16, 90e16, 0);       // 80-90
-        _buckets[9] = Bucket(90e16, 1e18, 0);        // 90-100
-
+        _voucher = IERC20Base(address(0x0));
         _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
@@ -69,9 +55,8 @@ contract LiquidLottery is ILiquidLottery {
 
         (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
 
-        _voucher = IERC20Base(voucher);
-        _decimalV = _voucher.decimals();
-        _decimalC = _collateral.decimals();
+        _decimalV = _collateral.decimals();
+        _decimalC = _decimalV;
         _decimalT = 18;
     }
 
@@ -86,10 +71,7 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     modifier syncBlock() {
-       if (_lastBlockSync != 0) {
-         delete _pots[_lastBlockSync];
-         delete _lastBlockSync;
-       }
+       if (_lastBlockSync != 0) delete _lastBlockSync;
        _;
     }
 
@@ -119,21 +101,10 @@ contract LiquidLottery is ILiquidLottery {
     function sync() public payable onlyCycle(Epoch.Closed) {
         require(_lastBlockSync == 0, "Already synced");
 
-        uint256 premium = currentPremium();
-        uint256 operatorShare = (premium * 1000) / 10000; // 10%
-        uint256 ticketShare = (premium * 2000) / 10000;   // 20% 
-        uint256 prizeShare = premium - operatorShare - ticketShare; // 70%
-
-        ticketShare = scale(ticketShare, _decimalV, _decimalC);
-
         _oracle.randomize{ value: msg.value }(); 
-
-        _pots[block.number].prize = prizeShare;
         _lastBlockSync = block.number;
-        _opfees += operatorShare;
-        _reserves += ticketShare;
 
-        emit Sync(block.timestamp, 0);
+        emit Sync(block.number, 0);
     }
 
     function roll() public onlyCycle(Epoch.Closed) {
@@ -143,11 +114,23 @@ contract LiquidLottery is ILiquidLottery {
         uint8 index = uint8(uint256(entropy) % BUCKET_COUNT);
         uint8 bucketId = index > 9 ? index - 1 : index;
 
-        require(_pots[_lastBlockSync].prize != 0, "Not yet synced");
+        Bucket storage bucket = _buckets[bucketId];
 
-        _bucketId = bucketId;
+        uint256 premium = currentPremium();
+        uint256 operatorShare = (premium * 1000) / 10000; // 10%
+        uint256 ticketShare = (premium * 2000) / 10000;   // 20% 
+        uint256 prizeShare = premium - operatorShare - ticketShare; // 70%
 
-        emit Roll(block.timestamp, entropy, bucketId, 0);
+        ticketShare = scale(ticketShare, _decimalV, _decimalC);
+
+
+        bucket.totalRewards += prizeShare;
+        bucket.rewardCheckpoint += prizeShare;
+
+        _opfees += operatorShare;
+        _reserves += ticketShare;
+
+        emit Roll(block.number, entropy, bucketId, 0);
     }
 
     function mint(uint256 amount) public onlyCycle(Epoch.Open) syncBlock {
@@ -157,8 +140,8 @@ contract LiquidLottery is ILiquidLottery {
 
         uint256 tickets = amount * 1e18 / TICKET_BASE_PRICE;
 
-        _ticket.mint(msg.sender, tickets);
         _reserves += amount;
+        _ticket.mint(msg.sender, tickets);
 
         emit Enter(msg.sender, amount, tickets);
     }
@@ -173,29 +156,25 @@ contract LiquidLottery is ILiquidLottery {
 
         uint256 deposit = _pool.withdraw(address(_collateral), collateral, address(this));
 
-        _collateral.transferFrom(address(this), msg.sender, deposit);
         _reserves -= deposit;
+        _collateral.transferFrom(address(this), msg.sender, deposit);
 
         emit Exit(msg.sender, deposit, amount);
     }
  
     function claim(uint8 index) public onlyCycle(Epoch.Closed) {
-        Pot storage pot = _pots[_lastBlockSync];
+        Stake storage stake = _stakes[msg.sender][index];
+        Bucket storage bucket = _buckets[index];
 
-        uint256 staked = _buckets[index].totalDeposits;
-        uint256 deposit = _stakes[msg.sender][index];
+        require(stake.deposit > 0, "Insufficient stake");
+        require(bucket.rewardCheckpoint > stake.checkpoint, "Already claimed");
 
-        require(index == _bucketId, "Invalid bucket");
-        require(staked > 0, "No bucket stakes active");
-        require(deposit > 0, "Insufficient stake"); 
-        require(!pot.claim[msg.sender], "Already claimed");
-
-        uint256 alloc = deposit * 1e18 / staked;
-        uint256 prize = scale(pot.prize - pot.redeemed, _decimalV, 18);
+        uint256 alloc = stake.deposit * 1e18 / bucket.totalDeposits;
+        uint256 prize = scale(bucket.rewardCheckpoint - stake.checkpoint, _decimalV, 18);
         uint256 reward = scale(alloc * prize / 1e18, 18, _decimalV);
 
-        pot.redeemed += reward; 
-        pot.claim[msg.sender] = true;
+        bucket.totalRewards -= reward;
+        stake.checkpoint = bucket.rewardCheckpoint;
 
         uint256 share = _pool.withdraw(address(_collateral), reward, address(this));
 
@@ -205,9 +184,14 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     function stake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
-        _locked += amount;
-        _stakes[msg.sender][index] += amount;
-        _buckets[index].totalDeposits += amount;
+        require(BUCKET_COUNT >= index, "Invalid bucket index");
+
+        Stake storage stake = _stakes[msg.sender][index];
+        Bucket storage bucket = _buckets[index];
+
+        stake.deposit += amount;
+        stake.checkpoint = bucket.rewardCheckpoint;
+        bucket.totalDeposits += amount;
 
         _ticket.transferFrom(msg.sender, address(this), amount);
 
@@ -215,13 +199,16 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     function withdraw(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
-        uint256 deposit = _stakes[msg.sender][index];
+        require(BUCKET_COUNT >= index, "Invalid bucket index");
 
-        require(amount <= deposit, "Insufficient balance");
+        Stake storage stake = _stakes[msg.sender][index];
+        Bucket storage bucket = _buckets[index];
 
-        _locked -= amount;
-        _buckets[index].totalDeposits -= amount;
-        _stakes[msg.sender][index] = deposit - amount;
+        require(stake.deposit >= amount, "Insufficient balance");
+
+        stake.deposit -= amount;
+        stake.checkpoint = bucket.rewardCheckpoint;
+        bucket.totalDeposits -= amount;
 
         _ticket.transferFrom(address(this), msg.sender, amount);
 
@@ -232,7 +219,7 @@ contract LiquidLottery is ILiquidLottery {
         if (d1 < d2) {
           return amount * (10 ** uint256(d2 - d1));
         } else if (d1 > d2) {
-          uint256 f =  (10 ** uint256(d1 - d2);
+          uint256 f = 10 ** uint256(d1 - d2);
 
           return (amount + f / 2) / f;
         }
