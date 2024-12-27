@@ -29,7 +29,7 @@ contract LiquidLottery is ILiquidLottery {
     mapping (uint8 => Bucket) public _buckets;
     mapping (address => mapping (uint8 => Stake)) public _stakes;
 
-    uint256 constant public BUCKET_COUNT = 10;
+    uint256 constant public BUCKET_COUNT = 12;
     uint256 constant public OPEN_EPOCH = 4 days;
     uint256 constant public CLOSED_EPOCH = 12 hours;
     uint256 constant public PENDING_EPOCH = 2 days + 12 hours; 
