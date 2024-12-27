@@ -47,7 +47,6 @@ contract LiquidLottery is ILiquidLottery {
     ) {
         _operator = operator;
 
-        _voucher = IERC20Base(address(0x0));
         _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
@@ -55,8 +54,9 @@ contract LiquidLottery is ILiquidLottery {
 
         (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
 
-        _decimalV = _collateral.decimals();
-        _decimalC = _decimalV;
+        _voucher = IERC20Base(voucher);
+        _decimalC = _collateral.decimals();
+        _decimalV = _voucher.decimals();
         _decimalT = 18;
     }
 
@@ -75,13 +75,20 @@ contract LiquidLottery is ILiquidLottery {
        _;
     }
 
+
+    function collateralPerShare() public view returns (uint256) {
+        uint256 supply = _ticket.totalSupply();
+        uint256 reserves = scale(_reserves, _decimalC, _decimalT);
+
+        if (supply == 0) return TICKET_BASE_PRICE;
+        
+        return (reserves * 1e18) / supply;
+    }
+
     function currentPremium() public view returns (uint256) {
         uint256 interest = _voucher.balanceOf(address(this)) - _opfees;
-        uint256 reserves = scale(_reserves, _decimalC, _decimalV);
 
-        if (interest > reserves) {
-          return scale(interest - reserves, _decimalV, 18);
-        } 
+        if (interest > _reserves) return interest - _reserves;
 
         return  0;
     }
@@ -121,9 +128,6 @@ contract LiquidLottery is ILiquidLottery {
         uint256 ticketShare = (premium * 2000) / 10000;   // 20% 
         uint256 prizeShare = premium - operatorShare - ticketShare; // 70%
 
-        ticketShare = scale(ticketShare, _decimalV, _decimalC);
-
-
         bucket.totalRewards += prizeShare;
         bucket.rewardCheckpoint += prizeShare;
 
@@ -138,7 +142,7 @@ contract LiquidLottery is ILiquidLottery {
         _collateral.approve(address(_pool), amount);      
         _pool.supply(address(_collateral), amount, address(this), 0);
 
-        uint256 tickets = amount * 1e18 / TICKET_BASE_PRICE;
+        uint256 tickets = amount * 1e18 / collateralPerShare();
 
         _reserves += amount;
         _ticket.mint(msg.sender, tickets);
@@ -147,10 +151,8 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     function burn(uint256 amount) public onlyCycle(Epoch.Pending) syncBlock {
-        uint256 reserves = scale(_reserves, _decimalC, 18);
-        uint256 proportion = amount * 1e18 / _ticket.totalSupply();
-        uint256 alloc = proportion * reserves / 1e18;
-        uint256 collateral = scale(alloc, 18, _decimalC);
+        uint256 allocation = amount * collateralPerShare() / 1e18;
+        uint256 collateral = scale(allocation, _decimalT, _decimalC);
 
         _ticket.burn(msg.sender, amount);
 
@@ -169,9 +171,10 @@ contract LiquidLottery is ILiquidLottery {
         require(stake.deposit > 0, "Insufficient stake");
         require(bucket.rewardCheckpoint > stake.checkpoint, "Already claimed");
 
+        uint256 surplus = bucket.rewardCheckpoint - stake.checkpoint;
         uint256 alloc = stake.deposit * 1e18 / bucket.totalDeposits;
-        uint256 prize = scale(bucket.rewardCheckpoint - stake.checkpoint, _decimalV, 18);
-        uint256 reward = scale(alloc * prize / 1e18, 18, _decimalV);
+        uint256 prize = scale(surplus, _decimalC, _decimalT);
+        uint256 reward = scale(alloc * prize / 1e18, _decimalT, _decimalC);
 
         bucket.totalRewards -= reward;
         stake.checkpoint = bucket.rewardCheckpoint;
