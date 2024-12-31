@@ -7,6 +7,7 @@ interface ILiquidLottery {
     struct Stake {
       uint256 deposit; 
       uint256 checkpoint;
+      uint256 outstanding;
     } 
 
     struct Bucket {
@@ -28,6 +29,8 @@ interface ILiquidLottery {
     event Enter(address indexed account, uint256 collateral, uint256 tickets);
 
     event Exit(address indexed account, uint256 tickets, uint256 collateral);
+
+    event Leverage(address indexed account, uint256 collateral, uint256 principal);
 
     event Roll(uint256 indexed block, bytes32 entropy, uint8 bucket, uint256 prize);
 

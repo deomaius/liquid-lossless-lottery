@@ -30,7 +30,7 @@ contract LiquidLottery is ILiquidLottery {
     IWitnetRandomnessV2 public _oracle;
 
     mapping (uint8 => Bucket) public _buckets;
-    mapping (address => mapping (uint8 => Stake)) public _stakes;
+    mapping (address => mapping (uint => Stake)) public _stakes;
 
     uint256 constant public BUCKET_COUNT = 12;
     uint256 constant public OPEN_EPOCH = 4 days;
@@ -45,10 +45,10 @@ contract LiquidLottery is ILiquidLottery {
         address operator,
         address provider,
         address collateral,
-        uint256 limitingApy,
-        uint256 ltvMultiplier,
         string memory name,
-        string memory symbol
+        string memory symbol,
+        uint256 ltvMultiplier,
+        uint256 limitingApy
     ) {
         _operator = operator;
         _limitApy = limitingApy;
@@ -224,7 +224,9 @@ contract LiquidLottery is ILiquidLottery {
         Stake storage stake = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
 
-        require(stake.deposit >= amount, "Insufficient balance");
+        uint256 balance = stake.deposit - stake.outstanding;
+
+        require(balance >= amount, "Insufficient balance");
 
         stake.deposit -= amount;
         stake.checkpoint = bucket.rewardCheckpoint;
@@ -235,15 +237,27 @@ contract LiquidLottery is ILiquidLottery {
         emit Unlock(msg.sender, index, amount);
     }
 
-    function scale(uint256 amount, uint8 d1, uint8 d2) internal pure returns (uint256) {
-        if (d1 < d2) {
-          return amount * (10 ** uint256(d2 - d1));
-        } else if (d1 > d2) {
-          uint256 f = 10 ** uint256(d1 - d2);
+    function leverage(uint8 index, uint256 amount) public onlyCycle(Epoch.Active) {
+        uint256 rate = credit(msg.sender, index);
+        uint256 checkpoint = _buckets[index].rewardCheckpoint;
 
-          return (amount + f / 2) / f;
-        }
-        return amount;
+        require(BUCKET_COUNT >= index, "Invalid bucket index");
+        require(rate >= amount, "Insufficient credit");
+
+        uint256 principal = rate - amount;
+        uint256 collateral = rewards(account, index) - principal;
+
+        Stake storage stake = _stakes[msg.sender][index];
+
+        uint256 tickets = collateral * 1e18 / collateralPerShare();
+
+        stake.deposit += tickets;
+        stake.checkpoint = checkpoint;
+        stake.outstanding += tickets;
+
+        _mint(address(this), tickets);  
+       // @TODO: Pool reedem
+        emit Leverage(msg.sender, collateral, principal);
     }
 
     function funnel() public {
@@ -255,6 +269,17 @@ contract LiquidLottery is ILiquidLottery {
         _collateral.transferFrom(address(this), _operator, fees);
 
         emit Funnel(fees);
+    }
+
+    function scale(uint256 amount, uint8 d1, uint8 d2) internal pure returns (uint256) {
+        if (d1 < d2) {
+          return amount * (10 ** uint256(d2 - d1));
+        } else if (d1 > d2) {
+          uint256 f = 10 ** uint256(d1 - d2);
+
+          return (amount + f / 2) / f;
+        }
+        return amount;
     }
 
 }
