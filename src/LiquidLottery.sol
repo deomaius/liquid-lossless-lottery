@@ -16,7 +16,10 @@ contract LiquidLottery is ILiquidLottery {
     uint8 public _decimalV;
     uint8 public _decimalC;
     uint8 public _decimalT;
+
     uint256 public _opfees;
+    uint256 public _limitLtv;
+    uint256 public _limitApy;
     uint256 public _reserves;
     uint256 public _lastBlockSync;
 
@@ -42,11 +45,15 @@ contract LiquidLottery is ILiquidLottery {
         address operator,
         address provider,
         address collateral,
+        uint256 limitingApy,
+        uint256 ltvMultiplier,
         string memory name,
         string memory symbol
     ) {
         _operator = operator;
-
+        _limitApy = limitingApy;
+        _limitLtv = ltvMultiplier;
+        
         _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
@@ -75,6 +82,16 @@ contract LiquidLottery is ILiquidLottery {
        _;
     }
 
+    function credit(address account, uint8 index) public view returns (uint256) {
+        return rewards(account, index) * _limitLtv / 10000;
+    }
+    
+    function rewards(address account, uint8 index) public view returns (uint256) {
+        Stake storage stake = _stakes[msg.sender][index];
+        Bucket storage bucket = _buckets[index];
+
+        return bucket.rewardCheckpoint - stake.checkpoint;
+    }
 
     function collateralPerShare() public view returns (uint256) {
         uint256 supply = _ticket.totalSupply();
@@ -171,9 +188,9 @@ contract LiquidLottery is ILiquidLottery {
         require(stake.deposit > 0, "Insufficient stake");
         require(bucket.rewardCheckpoint > stake.checkpoint, "Already claimed");
 
-        uint256 surplus = bucket.rewardCheckpoint - stake.checkpoint;
+        uint256 credit = bucket.rewardCheckpoint - stake.checkpoint;
         uint256 alloc = stake.deposit * 1e18 / bucket.totalDeposits;
-        uint256 prize = scale(surplus, _decimalC, _decimalT);
+        uint256 prize = scale(credit, _decimalC, _decimalT);
         uint256 reward = scale(alloc * prize / 1e18, _decimalT, _decimalC);
 
         bucket.totalRewards -= reward;
