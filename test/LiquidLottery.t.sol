@@ -8,6 +8,8 @@ contract LiquidLotteryTest is Test {
 
     LiquidLottery public _lottery;
 
-    function setUp() public {}
+    function setUp() public {
+            
+    }
 
 }

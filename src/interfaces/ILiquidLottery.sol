@@ -4,6 +4,17 @@ interface ILiquidLottery {
 
     enum Epoch { Pending, Open, Closed }
 
+    struct Note { 
+      uimt256 debt;
+      uin256 collateral;
+      uint256 timestamp;
+    }
+
+    struct Credit {
+      uint256 liabilities;
+      mapping (int8 => Note) notes;
+    }
+
     struct Stake {
       uint256 deposit; 
       uint256 checkpoint;

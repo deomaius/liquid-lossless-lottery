@@ -30,6 +30,7 @@ contract LiquidLottery is ILiquidLottery {
     IWitnetRandomnessV2 public _oracle;
 
     mapping (uint8 => Bucket) public _buckets;
+    mapping (address => Credit) public _credit;
     mapping (address => mapping (uint => Stake)) public _stakes;
 
     uint256 constant public BUCKET_COUNT = 12;
@@ -80,6 +81,14 @@ contract LiquidLottery is ILiquidLottery {
     modifier syncBlock() {
        if (_lastBlockSync != 0) delete _lastBlockSync;
        _;
+    }
+
+    function debt(address account) public view returns (uint256) {
+        return _credit[account].liabilities;
+    }
+
+    function note(address account, int8 index) public view returns (Note) {
+        return _credit[account].notes[index];
     }
 
     function credit(address account, uint8 index) public view returns (uint256) {
@@ -176,14 +185,17 @@ contract LiquidLottery is ILiquidLottery {
         uint256 deposit = _pool.withdraw(address(_collateral), collateral, address(this));
 
         _reserves -= deposit;
+
         _collateral.transferFrom(address(this), msg.sender, deposit);
 
         emit Exit(msg.sender, deposit, amount);
     }
  
+    // @TODO: NOTE handling 
     function claim(uint8 index) public onlyCycle(Epoch.Closed) {
+        Credit storage credit = _credit[msg.sender];
         Stake storage stake = _stakes[msg.sender][index];
-        Bucket storage bucket = _buckets[index];
+        Note storage note = _credit.notes[index];
 
         require(stake.deposit > 0, "Insufficient stake");
         require(bucket.rewardCheckpoint > stake.checkpoint, "Already claimed");
@@ -244,19 +256,30 @@ contract LiquidLottery is ILiquidLottery {
         require(BUCKET_COUNT >= index, "Invalid bucket index");
         require(rate >= amount, "Insufficient credit");
 
+        // @TODO: falsey 
         uint256 principal = rate - amount;
-        uint256 collateral = rewards(account, index) - principal;
+        uint256 surplus = rewards(account, index) - principal;
+        uint256 collateral = scale(surplus, _decimalV, _decimalT);
 
+        Credit storage credit = _credit[msg.sender];
         Stake storage stake = _stakes[msg.sender][index];
+        Note storage note = _credit.notes[index];
 
         uint256 tickets = collateral * 1e18 / collateralPerShare();
 
-        stake.deposit += tickets;
-        stake.checkpoint = checkpoint;
+        _reserves += collateral;
+        
+        note.debt += principal;
+        note.collateral += tickets;
+        note.timestamp = block.timestamp;
+        credit.liabilities += principal;
+        stake.checkpoint -= surplus;
         stake.outstanding += tickets;
+        stake.deposit += tickets;
 
-        _mint(address(this), tickets);  
-       // @TODO: Pool reedem
+        _ticket._mint(address(this), tickets);  
+        _pool.withdraw(address(_collateral), amount, msg.sender);
+
         emit Leverage(msg.sender, collateral, principal);
     }
 
