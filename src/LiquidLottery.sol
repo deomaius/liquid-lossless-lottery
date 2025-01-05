@@ -147,6 +147,14 @@ contract LiquidLottery is ILiquidLottery {
         }
     }
 
+    function isOracleReady() public returns (bool) {
+        if (!_failsafe) {
+            return lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync;
+        }
+
+        return true;
+    }
+
     function sync() public payable onlyCycle(Epoch.Closed) {
         require(_lastBlockSync == 0, "Already synced");
 
@@ -156,10 +164,9 @@ contract LiquidLottery is ILiquidLottery {
         emit Sync(block.number, 0);
     }
 
-    function roll() public onlyCycle(Epoch.Closed) {
-        require(_lastBlockSync != 0, "Already rolled");
-        require(_oracle.isRandomized(_lastBlockSync), "Randomness not ready");
- 
+    function roll() public onlyCycle(Epoch.Closed) { 
+        require(isOracleReady(), "Oracle not ready");
+
         bytes32 entropy;
         uint8 bucketId;
 
@@ -174,7 +181,7 @@ contract LiquidLottery is ILiquidLottery {
 
         uint256 premium = currentPremium();
         uint256 operatorShare = (premium * 1000) / 10000; // 10%
-        uint256 ticketShare = (premium * 2000) / 10000;   // 20% 
+        uint256 ticketShare = (premium * 2000) / 10000;   // 20%
         uint256 prizeShare = premium - operatorShare - ticketShare; // 70%
 
         if (_failsafe) {
