@@ -190,14 +190,41 @@ contract LiquidLottery is ILiquidLottery {
 
         emit Exit(msg.sender, deposit, amount);
     }
- 
-    // @TODO: NOTE handling 
-    function claim(uint8 index) public onlyCycle(Epoch.Closed) {
+
+    function repay(uint8 index, uint256 amount) public {
         Credit storage credit = _credit[msg.sender];
+        Note storage note = credit.notes[index];
         Stake storage stake = _stakes[msg.sender][index];
-        Note storage note = _credit.notes[index];
+        Bucket storage bucket = _buckets[index];
+
+        uint256 t = block.timestamp - note.timestamp;
+        uint256 interest = note.debt * _limitApy / 1000;
+        uint256 premium = interest * t * / 10000 / 1 years;
+        uint256 nominal = amount - premium;
+
+        note.debt -= nominal;
+        note.timestamp = block.timestamp;
+        stake.checkpoint = bucket.rewardCheckpoint;
+
+        _reserves += nominal;
+        _collateral.transferFrom(msg.sender, address(this), amount);
+
+        if (note.debt == 0) {
+          stake.outstanding -= note.collateral;
+          
+          delete note.collateral;
+          delete note.timestamp;
+        } 
+
+        emit Repayment(msg.sender, index, nominal);
+    } 
+ 
+    function claim(uint8 index) public onlyCycle(Epoch.Closed) {
+        Stake storage stake = _stakes[msg.sender][index];
+        Bucket storage bucket = _buckets[index];
 
         require(stake.deposit > 0, "Insufficient stake");
+        require(_credit[msg.sender].notes[index] == 0, "Active debt");  
         require(bucket.rewardCheckpoint > stake.checkpoint, "Already claimed");
 
         uint256 credit = bucket.rewardCheckpoint - stake.checkpoint;
@@ -230,7 +257,7 @@ contract LiquidLottery is ILiquidLottery {
         emit Lock(msg.sender, index, amount);
     }
 
-    function withdraw(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
+    function unstake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
         require(BUCKET_COUNT >= index, "Invalid bucket index");
 
         Stake storage stake = _stakes[msg.sender][index];

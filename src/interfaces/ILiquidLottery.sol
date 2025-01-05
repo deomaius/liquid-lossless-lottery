@@ -5,9 +5,9 @@ interface ILiquidLottery {
     enum Epoch { Pending, Open, Closed }
 
     struct Note { 
-      uimt256 debt;
-      uin256 collateral;
+      uint256 debt;
       uint256 timestamp;
+      uint256 collateral;
     }
 
     struct Credit {
@@ -36,6 +36,8 @@ interface ILiquidLottery {
     event Claim(address indexed account, uint8 bucket, uint256 amount);
 
     event Unlock(address indexed account, uint8 bucket, uint256 amount);
+
+    event Repayment(address indexed account, uin8 bucket, uint256 debit);
 
     event Enter(address indexed account, uint256 collateral, uint256 tickets);
 
