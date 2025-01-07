@@ -4,27 +4,28 @@ interface ILiquidLottery {
 
     enum Epoch { Pending, Open, Closed }
 
+
     struct Note { 
-      uint256 debt;
-      uint256 timestamp;
-      uint256 collateral;
+      uint256 debt;                     // @param Outstanding payments 
+      uint256 timestamp;                // @param Position creation / basis 
+      uint256 collateral;               // @param Ticket denominated collateral value
     }
 
     struct Credit {
-      uint256 liabilities;
-      mapping (int8 => Note) notes;
+      uint256 liabilities;              // @param Total outstanding payments 
+      mapping (int8 => Note) notes;     // @param Note position mapping    
     }
 
     struct Stake {
-      uint256 deposit; 
-      uint256 checkpoint;
-      uint256 outstanding;
+      uint256 deposit;                  // @param Ticket denominated stake value  
+      uint256 checkpoint;               // @param Bucket reward checkpoint value
+      uint256 outstanding;              // @param Locked ticket denominated value
     } 
 
     struct Bucket {
-      uint256 totalRewards;
-      uint256 totalDeposits;
-      uint256 rewardCheckpoint;
+      uint256 totalRewards;             // @param Unclaimed bucket rewards  
+      uint256 totalDeposits;            // @param Total bucket ticket denominated stake value
+      uint256 rewardCheckpoint;         // @param Checkpoint value of totalRewards
     } 
 
     event Funnel(uint256 amount);
