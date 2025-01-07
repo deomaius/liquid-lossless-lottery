@@ -4,11 +4,11 @@ interface ILiquidLottery {
 
     enum Epoch { Pending, Open, Closed }
 
-
     struct Note { 
       uint256 debt;                     // @param Outstanding payments 
+      uint256 principal;                // @param Nominal collateral denominated value 
       uint256 timestamp;                // @param Position creation / basis 
-      uint256 collateral;               // @param Ticket denominated collateral value
+      uint256 collateral;               // @param Position ticket denominated stake 
     }
 
     struct Credit {
@@ -28,24 +28,30 @@ interface ILiquidLottery {
       uint256 rewardCheckpoint;         // @param Checkpoint value of totalRewards
     } 
 
+    event Failsafe(bool state);
+
     event Funnel(uint256 amount);
 
+    event Config(uint256 ltv, uint256 apy);
+
+    event Config(address indexed controller);
+
     event Sync(uint256 indexed block, uint256 prize);
-
-    event Lock(address indexed account, uint8 bucket, uint256 amount);
-
-    event Claim(address indexed account, uint8 bucket, uint256 amount);
-
-    event Unlock(address indexed account, uint8 bucket, uint256 amount);
-
-    event Repayment(address indexed account, uin8 bucket, uint256 debit);
 
     event Enter(address indexed account, uint256 collateral, uint256 tickets);
 
     event Exit(address indexed account, uint256 tickets, uint256 collateral);
 
+    event Lock(address indexed account, uint8 indexed bucket, uint256 amount);
+
+    event Claim(address indexed account, uint8 indexed bucket, uint256 amount);
+
+    event Unlock(address indexed account, uint8 indexed bucket, uint256 amount);
+
+    event Repayment(address indexed account, uin8 indexed bucket, uint256 debit);
+
     event Leverage(address indexed account, uint256 collateral, uint256 principal);
 
-    event Roll(uint256 indexed block, bytes32 entropy, uint8 bucket, uint256 prize);
+    event Roll(uint256 indexed block, bytes32 entropy, uint8 indexed bucket, uint256 prize);
 
 }

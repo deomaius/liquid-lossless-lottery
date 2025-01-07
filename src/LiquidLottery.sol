@@ -358,6 +358,7 @@ contract LiquidLottery is ILiquidLottery {
         Stake storage stake = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
 
+        // @TODO: Self-repaying from rewards
         uint256 t = block.timestamp - note.timestamp;
         uint256 interest = note.principal * _limitApy / 1000;
         uint256 premium = interest * t * / 10000 / 1 years;
@@ -453,6 +454,8 @@ contract LiquidLottery is ILiquidLottery {
     function setLimits(uint256 ltv, uint256 apy) public onlyController {
         _limitLtv = ltv;
         _limitApy = apy;
+
+        emit Config(ltv, apy);
     }
 
     /*
@@ -461,6 +464,8 @@ contract LiquidLottery is ILiquidLottery {
     */
      function setController(address controller) public onlyController {
         _controller = controller;
+
+        emit Config(controller);
     } 
 
     /*
@@ -477,6 +482,8 @@ contract LiquidLottery is ILiquidLottery {
     */
     function setFailsafe(bool toggle) public onlyController {
         _failsafe = toggle;
+
+        emit Failsafe(toggle);
     }
 
     /*
