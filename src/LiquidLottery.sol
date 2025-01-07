@@ -359,7 +359,7 @@ contract LiquidLottery is ILiquidLottery {
         Bucket storage bucket = _buckets[index];
 
         uint256 t = block.timestamp - note.timestamp;
-        uint256 interest = note.debt * _limitApy / 1000;
+        uint256 interest = note.principal * _limitApy / 1000;
         uint256 premium = interest * t * / 10000 / 1 years;
         uint256 nominal = amount - premium;
 
@@ -483,7 +483,7 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Token decimal rounded interpolation
         * @param amount Target conversion value
         * @param d1 Token 'from' decimals
-        * @param d2 Token 'to' decimals¡
+        * @param d2 Token 'to' decimals
         * @return Token 'to' denominated value
     */
     function scale(uint256 amount, uint8 d1, uint8 d2) internal pure returns (uint256) {
