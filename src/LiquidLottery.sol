@@ -318,15 +318,16 @@ contract LiquidLottery is ILiquidLottery {
     */
     function leverage(uint8 index, uint256 amount) public onlyCycle(Epoch.Active) {
         uint256 rate = credit(msg.sender, index);
-        uint256 checkpoint = _buckets[index].rewardCheckpoint;
+        uint256 rewards =  rewards(msg.sender, index);
 
-        require(rate >= amount, "Insufficient credit");
+        require(amount <= rate, "Insufficient credit");
         require(index <= _slots, "Invalid bucket index");
 
-        // @TODO: falsey 
-        uint256 principal = rate - amount;
-        uint256 surplus = rewards(account, index) - principal;
-        uint256 collateral = scale(surplus, _decimalV, _decimalT);
+        uint256 position = amount * 10000 / _limitLtv; 
+
+        require(position <= rewards, "Insufficient rewards for collateral");
+
+        uint256 collateral = scale(position, _decimalV, _decimalT);
 
         Credit storage credit = _credit[msg.sender];
         Stake storage stake = _stakes[msg.sender][index];
@@ -336,18 +337,19 @@ contract LiquidLottery is ILiquidLottery {
 
         _reserves += collateral;
         
-        note.debt += principal;
+        note.debt += amount;
+        note.principal += amount; 
         note.collateral += tickets;
         note.timestamp = block.timestamp;
-        credit.liabilities += principal;
-        stake.checkpoint -= surplus;
+        credit.liabilities += amount;
         stake.outstanding += tickets;
+        stake.checkpoint -= position;
         stake.deposit += tickets;
 
         _ticket._mint(address(this), tickets);  
         _pool.withdraw(address(_collateral), amount, msg.sender);
 
-        emit Leverage(msg.sender, collateral, principal);
+        emit Leverage(msg.sender, collateral, amount);
     }
 
     /*
