@@ -316,7 +316,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
         * @param index Collateral denominated position value    
     */
-    function leverage(uint8 index, uint256 amount) public onlyCycle(Epoch.Active) {
+    function leverage(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
         uint256 rate = credit(msg.sender, index);
         uint256 rewards =  rewards(msg.sender, index);
 
@@ -357,7 +357,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
         * @param amount Collateral denominated debit value    
     */
-    function repay(uint8 index, uint256 amount) public onlyCycle(Epoch.Open) {
+    function repay(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
         Credit storage credit = _credit[msg.sender];
         Note storage note = credit.notes[index];
         Stake storage stake = _stakes[msg.sender][index];
