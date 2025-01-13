@@ -19,6 +19,7 @@ contract LiquidLottery is ILiquidLottery {
 
     bool public _failsafe;
 
+    uint8 public _slots;
     uint8 public _decimalV;
     uint8 public _decimalC;
     uint8 public _decimalT;
@@ -59,8 +60,10 @@ contract LiquidLottery is ILiquidLottery {
         string memory name,         // @param Lottery ticket name
         string memory symbol,       // @param Lottery ticket symbol 
         uint256 ltvMultiplier,      // @param Lottery loan-to-value (LTV) multiplier
-        uint256 limitingApy         // @param Lottery annual per year (APY) rate 
+        uint256 limitingApy,        // @param Lottery annual per year (APY) rate 
+        uint256 bucketSlots         // @param Lottery bucket count 
     ) {
+        _slots = bucketSlots;
         _operator = operator;
         _controller = controller;
         _limitLtv = ltvMultiplier;
@@ -192,7 +195,7 @@ contract LiquidLottery is ILiquidLottery {
     */
     function isOracleReady() public returns (bool) {
         if (!_failsafe) {
-            return lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync;
+            return lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync);                                                              
         }
 
         return true;
@@ -216,7 +219,7 @@ contract LiquidLottery is ILiquidLottery {
         uint8 bucketId;
 
         try _oracle.fetchRandomnessAfter(_lastBlockSync) returns (bytes32 result) {
-            uint8 index = uint8(uint256(result) % BUCKET_COUNT);
+            uint8 index = uint8(uint256(result) % _slots);
 
             bucketId = index > 9 ? index - 1 : index;
             entropy = result;
@@ -317,8 +320,8 @@ contract LiquidLottery is ILiquidLottery {
         uint256 rate = credit(msg.sender, index);
         uint256 checkpoint = _buckets[index].rewardCheckpoint;
 
-        require(BUCKET_COUNT >= index, "Invalid bucket index");
         require(rate >= amount, "Insufficient credit");
+        require(index <= _slots, "Invalid bucket index");
 
         // @TODO: falsey 
         uint256 principal = rate - amount;
@@ -387,7 +390,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Ticket denominated stake value    
     */
     function stake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
-        require(BUCKET_COUNT >= index, "Invalid bucket index");
+        require(index <= _slots, "Invalid bucket index");
 
         Stake storage stake = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
@@ -466,8 +469,20 @@ contract LiquidLottery is ILiquidLottery {
         _controller = controller;
 
         emit Config(controller);
-    } 
+    }
 
+    /*
+        * @dev Configure bucket count (slots)
+        * @param slots Bucket count value 
+    */
+    function setSlots(uint8 slots) public onlyController {
+        uint256 lastSlot = uint256(_slots);
+
+        _slots = slots;
+
+        emit Config(lastSlot, uint256(slots));
+    }
+  
     /*
         * @dev Configure ticket tax
         * @param rate Percentage tax value (@ 1BPS = 1000)  
