@@ -278,7 +278,6 @@ contract LiquidLottery is ILiquidLottery {
         uint256 deposit = _pool.withdraw(address(_collateral), collateral, address(this));
 
         _reserves -= deposit;
-
         _collateral.transferFrom(address(this), msg.sender, deposit);
 
         emit Exit(msg.sender, deposit, amount);
@@ -317,13 +316,11 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Collateral denominated position value    
     */
     function leverage(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
-        uint256 rate = credit(msg.sender, index);
-        uint256 rewards =  rewards(msg.sender, index);
-
-        require(amount <= rate, "Insufficient credit");
         require(index <= _slots, "Invalid bucket index");
+        require(credit(msg.sender, index) >= amount, "Insufficient credit");
 
         uint256 position = amount * 10000 / _limitLtv; 
+        uint256 rewards =  rewards(msg.sender, index);
 
         require(position <= rewards, "Insufficient rewards for collateral");
 
@@ -333,10 +330,10 @@ contract LiquidLottery is ILiquidLottery {
         Stake storage stake = _stakes[msg.sender][index];
         Note storage note = _credit.notes[index];
 
-        uint256 tickets = collateral * 1e18 / collateralPerShare();
+        _reserves += position;
 
-        _reserves += collateral;
-        
+        uint256 tickets = collateral * 1e18 / collateralPerShare();
+ 
         note.debt += amount;
         note.principal += amount; 
         note.collateral += tickets;
@@ -346,7 +343,7 @@ contract LiquidLottery is ILiquidLottery {
         stake.checkpoint -= position;
         stake.deposit += tickets;
 
-        _ticket._mint(address(this), tickets);  
+        _ticket.mint(address(this), tickets);  
         _pool.withdraw(address(_collateral), amount, msg.sender);
 
         emit Leverage(msg.sender, collateral, amount);
@@ -358,32 +355,59 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Collateral denominated debit value    
     */
     function repay(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
+        Stake storage stake = _stakes[msg.sender][index];
         Credit storage credit = _credit[msg.sender];
         Note storage note = credit.notes[index];
-        Stake storage stake = _stakes[msg.sender][index];
-        Bucket storage bucket = _buckets[index];
 
-        // @TODO: Self-repaying from rewards
         uint256 t = block.timestamp - note.timestamp;
+        uint256 rewards = rewards(msg.sender, index);
         uint256 interest = note.principal * _limitApy / 1000;
-        uint256 premium = interest * t * / 10000 / 1 years;
-        uint256 nominal = amount - premium;
+        uint256 premium = interest * t / 10000 / 1 years;
+        uint256 recoup = amount + rewards;
 
-        note.debt -= nominal;
+        require(recoup > 0, "Insufficient repayment");
+        require(index <= _slots, "Invalid bucket index");
+        require(recoup <= note.debt, "Insufficient debt");
+
+        // Self-repayment
+        if (recoup > 0) {
+            if (recoup >= premium) {
+                note.debt -= premium;
+                credit.liabilties -= premium;
+
+                if (rewards >= premium) {
+                    stake.checkpoint -= premium;
+                } else {
+                    stake.checkpoint -= rewards;
+                 }
+
+                _reserves += premium;
+                recoup -= premium;
+            } else {
+                note.debt += premium - recoup;
+                credit.liabilties -= recoup;
+                stake.checkpoint -= rewards;
+
+                _reserves += recoup;
+                recoup = 0;
+            }
+        } else {
+            note.debt += premium;
+        }
+
+        note.debt -= recoup;
         note.timestamp = block.timestamp;
-        stake.checkpoint = bucket.rewardCheckpoint;
 
-        _reserves += nominal;
         _collateral.transferFrom(msg.sender, address(this), amount);
 
         if (note.debt == 0) {
-          stake.outstanding -= note.collateral;
+            stake.outstanding -= note.collateral;
           
-          delete note.collateral;
-          delete note.timestamp;
+            delete note.collateral;
+            delete note.timestamp;
         } 
 
-        emit Repayment(msg.sender, index, nominal);
+        emit Repayment(msg.sender, index, recoup);
     } 
 
     /*
@@ -412,7 +436,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Ticket denominated withdrawal value    
     */
     function unstake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
-        require(BUCKET_COUNT >= index, "Invalid bucket index");
+        require(index <= _slots, "Invalid bucket index");
 
         Stake storage stake = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
