@@ -5,7 +5,8 @@ interface ILiquidLottery {
     enum Epoch { Pending, Open, Closed }
 
     struct Note { 
-      uint256 debt;                     // @param Outstanding payments 
+      uint256 debt;                     // @param Outstanding payments  
+      uint256 interest;                 // @param Position interest 
       uint256 principal;                // @param Nominal collateral denominated value 
       uint256 timestamp;                // @param Position creation / basis 
       uint256 collateral;               // @param Position ticket denominated stake 

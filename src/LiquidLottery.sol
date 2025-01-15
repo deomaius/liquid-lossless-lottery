@@ -363,37 +363,12 @@ contract LiquidLottery is ILiquidLottery {
         uint256 rewards = rewards(msg.sender, index);
         uint256 interest = note.principal * _limitApy / 1000;
         uint256 premium = interest * t / 10000 / 1 years;
-        uint256 recoup = amount + rewards;
 
         require(recoup > 0, "Insufficient repayment");
         require(index <= _slots, "Invalid bucket index");
         require(recoup <= note.debt, "Insufficient debt");
 
-        // Self-repayment
-        if (recoup > 0) {
-            if (recoup >= premium) {
-                note.debt -= premium;
-                credit.liabilties -= premium;
-
-                if (rewards >= premium) {
-                    stake.checkpoint -= premium;
-                } else {
-                    stake.checkpoint -= rewards;
-                 }
-
-                _reserves += premium;
-                recoup -= premium;
-            } else {
-                note.debt += premium - recoup;
-                credit.liabilties -= recoup;
-                stake.checkpoint -= rewards;
-
-                _reserves += recoup;
-                recoup = 0;
-            }
-        } else {
-            note.debt += premium;
-        }
+        uint256 recoup = selfRepayment(premium, rewards, amount, note, credit, stake);
 
         note.debt -= recoup;
         note.timestamp = block.timestamp;
@@ -409,6 +384,41 @@ contract LiquidLottery is ILiquidLottery {
 
         emit Repayment(msg.sender, index, recoup);
     } 
+
+
+    function selfRepayment(
+        uint256 premium,
+        uint256 rewards,
+        uint256 amount,
+        Note storage note,
+        Credit storage credit,
+        Stake storage stake
+    ) internal returns (uint256) {
+        premium = note.interest + premium;
+        uint256 recoup = amount + rewards;
+    
+        if (recoup > 0) {
+            if (recoup >= premium) {
+                note.interest = 0;
+                stake.checkpoint -= rewards >= premium ? premium : rewards;
+                _reserves += premium;
+
+                return recoup - premium;
+            }
+        
+            note.interest += premium - recoup;
+            credit.liabilties -= recoup;
+            stake.checkpoint -= rewards;
+            _reserves += recoup;
+        
+            return 0;
+        }
+    
+        note.interest += premium;
+    
+        return 0;
+    }
+
 
     /*
         * @dev Bucket stake operation
