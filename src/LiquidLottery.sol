@@ -135,7 +135,7 @@ contract LiquidLottery is ILiquidLottery {
     function credit(address account, uint8 index, address delegator) public view returns (uint256) {
         uint256 base = rewards(account, index);
 
-        if (isDelegate(account, index, delegator)) {
+        if (account != delegator && delegatedTo(account, index) == delegator) {
             base += rewards(delegator, index);
         }
     
@@ -155,6 +155,22 @@ contract LiquidLottery is ILiquidLottery {
         return bucket.rewardCheckpoint - stake.checkpoint;
     }
 
+
+    /*
+        * @dev Delegated address helper
+        * @param from Target address
+        * @param index Bucket index value
+        * @return Delegate address 
+    */
+    function delegatedTo(address from, uint8 index) public view returns (address) {
+        Delegate storage delegation = _credit[from].delegations[index];
+
+        if (delegation.expiry < block.timestamp) return from;
+
+        return delegation.delegate;
+    }
+
+
     /*
         * @dev Ticket collateral value helper
         * @return Collateral per unit ticket
@@ -167,21 +183,6 @@ contract LiquidLottery is ILiquidLottery {
         
         return (reserves * 1e18) / supply;
     }
-
-    /*
-        * @dev Credit delegation helper
-        * @param from Delegator address
-        * @param to Delegatee address
-        * @param index Bucket index value
-        * @return Delegation state
-    */
-    function isDelegate(address from, address to, uint8 index) public view returns (bool) {
-        if (from == to) return false;
-    
-        Delegate storage delegation = _credit[from].delegations[index];
-
-        return to == delegation.delegate && block.timestamp < delegation.expiry;
-    } 
 
     /*
         * @dev Accured interest helper
@@ -316,6 +317,7 @@ contract LiquidLottery is ILiquidLottery {
         require(stake.deposit > 0, "Insufficient stake");
         require(_credit[msg.sender].notes[index] == 0, "Active debt");  
         require(bucket.rewardCheckpoint > stake.checkpoint, "Already claimed");
+        require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
 
         uint256 credit = bucket.rewardCheckpoint - stake.checkpoint;
         uint256 alloc = stake.deposit * 1e18 / bucket.totalDeposits;
@@ -349,14 +351,9 @@ contract LiquidLottery is ILiquidLottery {
         Credit storage credit = _credit[from];
         Stake storage stake = _stakes[from][index];
         Note storage note = _credit.notes[index];
-        Delegation storage delegation = credit.delegations[index];
 
-        bool isDelegate = msg.sender == delegation.address;
-        bool isExpired =  delegation.expiry < block.timestamp 
-
-        require(from == msg.sender || isExpired, "Credit delegated");
         require(position <= rewards, "Insufficient rewards for collateral");
-        require(from == msg.sender || (isDelegate && !isExpired), "Not valid delegate");
+        require(delegatedTo(from, index) == msg.sender, "Not valid delegate");
 
         _reserves += position;
 
