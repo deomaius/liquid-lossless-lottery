@@ -129,12 +129,19 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Active credit helper
         * @param account Target address
         * @param index Bucket index value
+        * @param index Delegator address
         * @return Collateral denominated credit
     */
-    function credit(address account, uint8 index) public view returns (uint256) {
-        return rewards(account, index) * _limitLtv / 10000;
-    }
+    function credit(address account, uint8 index, address delegator) public view returns (uint256) {
+        uint256 base = rewards(account, index);
+
+        if (isDelegate(account, index, delegator)) {
+            base += rewards(delegator, index);
+        }
     
+        return base * _limitLtv / 10000;
+    }
+
     /*
         * @dev Unclaimed rewards helper
         * @param account Target address
@@ -160,6 +167,21 @@ contract LiquidLottery is ILiquidLottery {
         
         return (reserves * 1e18) / supply;
     }
+
+    /*
+        * @dev Credit delegation helper
+        * @param from Delegator address
+        * @param to Delegatee address
+        * @param index Bucket index value
+        * @return Delegation state
+    */
+    function isDelegate(address from, address to, uint8 index) public view returns (bool) {
+        if (from == to) return false;
+    
+        Delegate storage delegation = _credit[from].delegations[index];
+
+        return to == delegation.delegate && block.timestamp < delegation.expiry;
+    } 
 
     /*
         * @dev Accured interest helper
@@ -312,23 +334,29 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Open reward credit position
+        * @param from Credit address source
         * @param index Bucket index value
         * @param index Collateral denominated position value    
     */
-    function leverage(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
+    function leverage(address from, uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
-        require(credit(msg.sender, index) >= amount, "Insufficient credit");
+        require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
         uint256 position = amount * 10000 / _limitLtv; 
-        uint256 rewards =  rewards(msg.sender, index);
-
-        require(position <= rewards, "Insufficient rewards for collateral");
-
+        uint256 rewards =  rewards(from, index);
         uint256 collateral = scale(position, _decimalV, _decimalT);
 
-        Credit storage credit = _credit[msg.sender];
-        Stake storage stake = _stakes[msg.sender][index];
+        Credit storage credit = _credit[from];
+        Stake storage stake = _stakes[from][index];
         Note storage note = _credit.notes[index];
+        Delegation storage delegation = credit.delegations[index];
+
+        bool isDelegate = msg.sender == delegation.address;
+        bool isExpired =  delegation.expiry < block.timestamp 
+
+        require(from == msg.sender || isExpired, "Credit delegated");
+        require(position <= rewards, "Insufficient rewards for collateral");
+        require(from == msg.sender || (isDelegate && !isExpired), "Not valid delegate");
 
         _reserves += position;
 
@@ -346,7 +374,7 @@ contract LiquidLottery is ILiquidLottery {
         _ticket.mint(address(this), tickets);  
         _pool.withdraw(address(_collateral), amount, msg.sender);
 
-        emit Leverage(msg.sender, collateral, amount);
+        emit Leverage(from, msg.sender, collateral, amount);
     }
 
     /*
@@ -364,13 +392,12 @@ contract LiquidLottery is ILiquidLottery {
         uint256 interest = note.principal * _limitApy / 1000;
         uint256 premium = interest * t / 10000 / 1 years;
 
-        require(recoup > 0, "Insufficient repayment");
         require(index <= _slots, "Invalid bucket index");
-        require(recoup <= note.debt, "Insufficient debt");
 
-        uint256 recoup = selfRepayment(premium, rewards, amount, note, credit, stake);
+        uint256 recoup = selfRepayment(premium, rewards, amount, note, stake);
 
         note.debt -= recoup;
+        credit.liabilities -= recoup;
         note.timestamp = block.timestamp;
 
         _collateral.transferFrom(msg.sender, address(this), amount);
@@ -391,7 +418,6 @@ contract LiquidLottery is ILiquidLottery {
         uint256 rewards,
         uint256 amount,
         Note storage note,
-        Credit storage credit,
         Stake storage stake
     ) internal returns (uint256) {
         premium = note.interest + premium;
@@ -407,7 +433,6 @@ contract LiquidLottery is ILiquidLottery {
             }
         
             note.interest += premium - recoup;
-            credit.liabilties -= recoup;
             stake.checkpoint -= rewards;
             _reserves += recoup;
         
@@ -419,6 +444,16 @@ contract LiquidLottery is ILiquidLottery {
         return 0;
     }
 
+    function delegate(address to, uint8 index, uint256 duration) public {
+        Delegate storage delegation = _credit[msg.sender].delegations[index];
+        
+        require(delegation.expiry < block.timestamp, "Active delegation");
+
+        delegation.address = to;
+        delegation.expiry = block.timestamp + duration;
+      
+        emit Delegation(msg.sender, to, delegation.expiry);
+    }
 
     /*
         * @dev Bucket stake operation
