@@ -43,7 +43,6 @@ contract LiquidLottery is ILiquidLottery {
     mapping (address => Credit) public _credit;
     mapping (address => mapping (uint => Stake)) public _stakes;
 
-    uint256 constant public BUCKET_COUNT = 12;
     uint256 constant public OPEN_EPOCH = 4 days;
     uint256 constant public CLOSED_EPOCH = 12 hours;
     uint256 constant public PENDING_EPOCH = 2 days + 12 hours; 
@@ -61,7 +60,7 @@ contract LiquidLottery is ILiquidLottery {
         string memory symbol,       // @param Lottery ticket symbol 
         uint256 ltvMultiplier,      // @param Lottery loan-to-value (LTV) multiplier
         uint256 limitingApy,        // @param Lottery annual per year (APY) rate 
-        uint256 bucketSlots         // @param Lottery bucket count 
+        uint8 bucketSlots           // @param Lottery bucket count 
     ) {
         _slots = bucketSlots;
         _operator = operator;
@@ -72,7 +71,7 @@ contract LiquidLottery is ILiquidLottery {
         _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
-        _ticket = IERC20Base(address(new TaxableERC20(5e16, name, symbol, 0)));
+        _ticket = IERC20Base(address(new TaxableERC20(500, name, symbol, 0)));
 
         (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
 
@@ -116,16 +115,6 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     /*
-        * @dev Bucket note helper
-        * @param account Target address
-        * @param index Bucket index value
-        * @return Note object 
-    */
-    function note(address account, int8 index) public view returns (Note) {
-        return _credit[account].notes[index];
-    }
-
-    /*
         * @dev Active credit helper
         * @param account Target address
         * @param index Bucket index value
@@ -149,10 +138,10 @@ contract LiquidLottery is ILiquidLottery {
         * @return Collateral denominated rewards 
     */
     function rewards(address account, uint8 index) public view returns (uint256) {
-        Stake storage stake = _stakes[msg.sender][index];
+        Stake storage vault = _stakes[account][index];
         Bucket storage bucket = _buckets[index];
 
-        return bucket.rewardCheckpoint - stake.checkpoint;
+        return bucket.rewardCheckpoint - vault.checkpoint;
     }
 
 
@@ -216,9 +205,9 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Oracle state helper
         * @return Oracle state
     */
-    function isOracleReady() public returns (bool) {
+    function isOracleReady() public view returns (bool) {
         if (!_failsafe) {
-            return lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync);                                                              
+            return _lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync);                                                              
         }
 
         return true;
@@ -311,21 +300,21 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
     */
     function claim(uint8 index) public onlyCycle(Epoch.Closed) {
-        Stake storage stake = _stakes[msg.sender][index];
+        Stake storage vault = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
 
-        require(stake.deposit > 0, "Insufficient stake");
-        require(_credit[msg.sender].notes[index] == 0, "Active debt");  
-        require(bucket.rewardCheckpoint > stake.checkpoint, "Already claimed");
+        require(vault.deposit > 0, "Insufficient stake");
+        require(_credit[msg.sender].notes[index].debt == 0, "Active debt");  
+        require(bucket.rewardCheckpoint > vault.checkpoint, "Already claimed");
         require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
 
-        uint256 credit = bucket.rewardCheckpoint - stake.checkpoint;
-        uint256 alloc = stake.deposit * 1e18 / bucket.totalDeposits;
-        uint256 prize = scale(credit, _decimalC, _decimalT);
+        uint256 unclaimed = bucket.rewardCheckpoint - vault.checkpoint;
+        uint256 alloc = vault.deposit * 1e18 / bucket.totalDeposits;
+        uint256 prize = scale(unclaimed, _decimalC, _decimalT);
         uint256 reward = scale(alloc * prize / 1e18, _decimalT, _decimalC);
 
         bucket.totalRewards -= reward;
-        stake.checkpoint = bucket.rewardCheckpoint;
+        vault.checkpoint = bucket.rewardCheckpoint;
 
         uint256 share = _pool.withdraw(address(_collateral), reward, address(this));
 
@@ -345,14 +334,14 @@ contract LiquidLottery is ILiquidLottery {
         require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
         uint256 position = amount * 10000 / _limitLtv; 
-        uint256 rewards =  rewards(from, index);
+        uint256 earned =  rewards(from, index);
         uint256 collateral = scale(position, _decimalV, _decimalT);
 
-        Credit storage credit = _credit[from];
-        Stake storage stake = _stakes[from][index];
-        Note storage note = _credit.notes[index];
+        Credit storage quota = _credit[from];
+        Stake storage vault = _stakes[from][index];
+        Note storage note = quota.notes[index];
 
-        require(position <= rewards, "Insufficient rewards for collateral");
+        require(position <= earned, "Insufficient rewards for collateral");
         require(delegatedTo(from, index) == msg.sender, "Not valid delegate");
 
         _reserves += position;
@@ -363,10 +352,10 @@ contract LiquidLottery is ILiquidLottery {
         note.principal += amount; 
         note.collateral += tickets;
         note.timestamp = block.timestamp;
-        credit.liabilities += amount;
-        stake.outstanding += tickets;
-        stake.checkpoint -= position;
-        stake.deposit += tickets;
+        quota.liabilities += amount;
+        vault.outstanding += tickets;
+        vault.checkpoint -= position;
+        vault.deposit += tickets;
 
         _ticket.mint(address(this), tickets);  
         _pool.withdraw(address(_collateral), amount, msg.sender);
@@ -380,27 +369,27 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Collateral denominated debit value    
     */
     function repay(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
-        Stake storage stake = _stakes[msg.sender][index];
-        Credit storage credit = _credit[msg.sender];
-        Note storage note = credit.notes[index];
+        Stake storage vault = _stakes[msg.sender][index];
+        Credit storage quota = _credit[msg.sender];
+        Note storage note = quota.notes[index];
 
         uint256 t = block.timestamp - note.timestamp;
-        uint256 rewards = rewards(msg.sender, index);
+        uint256 earned = rewards(msg.sender, index);
         uint256 interest = note.principal * _limitApy / 1000;
-        uint256 premium = interest * t / 10000 / 1 years;
+        uint256 premium = interest * t / 10000 / 365 days;
 
         require(index <= _slots, "Invalid bucket index");
 
-        uint256 recoup = selfRepayment(premium, rewards, amount, note, stake);
+        uint256 recoup = selfRepayment(premium, earned, amount, note, vault);
 
         note.debt -= recoup;
-        credit.liabilities -= recoup;
+        quota.liabilities -= recoup;
         note.timestamp = block.timestamp;
 
         _collateral.transferFrom(msg.sender, address(this), amount);
 
         if (note.debt == 0) {
-            stake.outstanding -= note.collateral;
+            vault.outstanding -= note.collateral;
           
             delete note.collateral;
             delete note.timestamp;
@@ -411,32 +400,33 @@ contract LiquidLottery is ILiquidLottery {
 
 
     function selfRepayment(
+        uint256 interest,
         uint256 premium,
-        uint256 rewards,
         uint256 amount,
         Note storage note,
-        Stake storage stake
+        Stake storage vault 
     ) internal returns (uint256) {
-        premium = note.interest + premium;
-        uint256 recoup = amount + rewards;
+        interest += note.interest;
+
+        uint256 recoup = amount + premium;
     
         if (recoup > 0) {
-            if (recoup >= premium) {
+            if (recoup >= interest) {
                 note.interest = 0;
-                stake.checkpoint -= rewards >= premium ? premium : rewards;
-                _reserves += premium;
+                vault.checkpoint -= premium >= interest ? interest : premium;
+                _reserves += interest;
 
-                return recoup - premium;
+                return recoup - interest;
             }
         
-            note.interest += premium - recoup;
-            stake.checkpoint -= rewards;
+            note.interest += interest - recoup;
+            vault.checkpoint -= premium;
             _reserves += recoup;
         
             return 0;
         }
     
-        note.interest += premium;
+        note.interest = interest;
     
         return 0;
     }
@@ -446,7 +436,7 @@ contract LiquidLottery is ILiquidLottery {
         
         require(delegation.expiry < block.timestamp, "Active delegation");
 
-        delegation.address = to;
+        delegation.delegate = to;
         delegation.expiry = block.timestamp + duration;
       
         emit Delegation(msg.sender, to, delegation.expiry);
@@ -460,11 +450,11 @@ contract LiquidLottery is ILiquidLottery {
     function stake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
 
-        Stake storage stake = _stakes[msg.sender][index];
+        Stake storage vault = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
 
-        stake.deposit += amount;
-        stake.checkpoint = bucket.rewardCheckpoint;
+        vault.deposit += amount;
+        vault.checkpoint = bucket.rewardCheckpoint;
         bucket.totalDeposits += amount;
 
         _ticket.transferFrom(msg.sender, address(this), amount);
@@ -480,15 +470,15 @@ contract LiquidLottery is ILiquidLottery {
     function unstake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
 
-        Stake storage stake = _stakes[msg.sender][index];
+        Stake storage vault = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
 
-        uint256 balance = stake.deposit - stake.outstanding;
+        uint256 balance = vault.deposit - vault.outstanding;
 
         require(balance >= amount, "Insufficient balance");
 
-        stake.deposit -= amount;
-        stake.checkpoint = bucket.rewardCheckpoint;
+        vault.deposit -= amount;
+        vault.checkpoint = bucket.rewardCheckpoint;
         bucket.totalDeposits -= amount;
 
         _ticket.transferFrom(address(this), msg.sender, amount);
@@ -514,7 +504,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Ticket denominated rebate value    
     */
     function issueRebate(address account, uint256 amount) public onlyController {
-        _ticket.rebate(account, amount);
+        TaxableERC20(address(_ticket)).rebate(account, amount);
     }
 
     /*
@@ -556,7 +546,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param rate Percentage tax value (@ 1BPS = 1000)  
     */
     function setTicketTax(uint256 rate) public onlyController {
-        _ticket.setTax(rate);
+        TaxableERC20(address(_ticket)).setTax(rate);
     }
 
     /*

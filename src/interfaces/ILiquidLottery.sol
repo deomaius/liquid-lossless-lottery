@@ -45,7 +45,7 @@ interface ILiquidLottery {
 
     event Sync(uint256 indexed block, uint256 prize);
     
-    event Delegate(address indexed from, address indexed to, uint256 expiry);
+    event Delegation(address indexed from, address indexed to, uint256 expiry);
 
     event Enter(address indexed account, uint256 collateral, uint256 tickets);
 
