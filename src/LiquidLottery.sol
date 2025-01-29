@@ -202,6 +202,30 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     /*
+        * @dev Credit Repayment time helper
+        * @param account User address
+        * @param index Bucket index
+        * @param amount Loan amount
+        * @return Expected repayment time in seconds
+    */
+    function repaymentTime(address from, uint8 index, uint256 amount) public view returns (uint256) {
+        Bucket storage bucket = _buckets[index];
+        Stake storage vault = _stakes[from][index];
+    
+        uint256 alloc = (vault.deposit * 1e18) / bucket.totalDeposits;
+        uint256 cycle = (_reserves * _limitApy * CYCLE) / (365 days * 10000);
+        uint256 position = (cycleApy * alloc) / 1e18;
+    
+        uint256 avgPremium = currentPremium() / _slots;
+        uint256 userAvgPremium = (avgPremium * alloc) / 1e18;   
+        uint256 totalPerCycle = userAvgPremium + position;
+    
+        if (totalPerCycle == 0) return type(uint256).max;
+    
+        return (amount * CYCLE) / totalPerCycle;
+    }
+
+    /*
         * @dev Oracle state helper
         * @return Oracle state
     */
@@ -397,7 +421,6 @@ contract LiquidLottery is ILiquidLottery {
 
         emit Repayment(msg.sender, index, recoup);
     } 
-
 
     function selfRepayment(
         uint256 interest,

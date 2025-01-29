@@ -1,4 +1,6 @@
 @openzeppelin/=lib/openzeppelin-contracts/contracts/
 @interfaces=src/interfaces/
+@root=src/
+
 forge-std/=lib/forge-std/src/
 
