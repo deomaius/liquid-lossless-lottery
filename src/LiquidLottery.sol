@@ -531,15 +531,13 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     /*
-        * @dev Configure credit lines 
-        * @param ltv Pool loan-to-value (LTV) 
+        * @dev Configure credit apy rate 
         * @param apy Pool annual per year (APY) rate
     */
-    function setLimits(uint256 ltv, uint256 apy) public onlyController {
-        _limitLtv = ltv;
+    function setApy(uint256 apy) public onlyController {
         _limitApy = apy;
 
-        emit Config(ltv, apy);
+        emit Configure(apy);
     }
 
     /*
@@ -549,21 +547,9 @@ contract LiquidLottery is ILiquidLottery {
      function setController(address controller) public onlyController {
         _controller = controller;
 
-        emit Config(controller);
+        emit Configure(controller);
     }
 
-    /*
-        * @dev Configure bucket count (slots)
-        * @param slots Bucket count value 
-    */
-    function setSlots(uint8 slots) public onlyController {
-        uint256 lastSlot = uint256(_slots);
-
-        _slots = slots;
-
-        emit Config(lastSlot, uint256(slots));
-    }
-  
     /*
         * @dev Configure ticket tax
         * @param rate Percentage tax value (@ 1BPS = 1000)  

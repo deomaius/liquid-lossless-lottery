@@ -39,9 +39,9 @@ interface ILiquidLottery {
 
     event Funnel(uint256 amount);
 
-    event Config(uint256 ltv, uint256 apy);
+    event Configure(uint256 apy);
 
-    event Config(address indexed controller);
+    event Configure(address indexed controller);
 
     event Sync(uint256 indexed block, uint256 prize);
     
