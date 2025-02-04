@@ -13,7 +13,14 @@ contract LiquidLotteryTest is Test {
     IERC20Base _collateral;
     LiquidLottery public _lottery;
 
-    function setUp() public {}
+    address constant AAVE_POOL_PROVIDER;
+    address constant TOKEN_USDC_ADDRESS;
+    address constant TOKEN_AUSDC_ADDRESS;
+    address constant WITNET_ORACLE_ADDRESS;
+
+    function setUp() public {
+      new _lottery = LiquidLottery();
+    }
 
     function testMint() public {}
 

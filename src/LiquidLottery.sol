@@ -28,10 +28,11 @@ contract LiquidLottery is ILiquidLottery {
     uint256 public _limitLtv;
     uint256 public _limitApy;
     uint256 public _reserves;
+    uint256 public _reservePrice;
     uint256 public _lastBlockSync;
 
-    address public _operator;
     address public _controller;
+    address public _coordinator;
 
     IERC20Base public _ticket;
     IERC20Base public _voucher;
@@ -47,24 +48,25 @@ contract LiquidLottery is ILiquidLottery {
     uint256 constant public CLOSED_EPOCH = 12 hours;
     uint256 constant public PENDING_EPOCH = 2 days + 12 hours; 
     uint256 constant public CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
-    uint256 constant public TICKET_BASE_PRICE = 1000 wei;
 
     constructor(
         address pool,               // @param Aave lending pool address
         address oracle,             // @param Witnet oracle address
-        address operator,           // @param Lottery operator address
         address provider,           // @param Aave pool provider address
         address controller,         // @param Lottery controller address
-        address collateral,         // @param Collateral token address 
+        address collateral,         // @param Lottery collateral token address 
+        address coordinator,        // @param Lottery coordinator address
         string memory name,         // @param Lottery ticket name
         string memory symbol,       // @param Lottery ticket symbol 
+        uint256 ticketBasePrice,    // @param Lottery ticket base conversion rate
         uint256 ltvMultiplier,      // @param Lottery loan-to-value (LTV) multiplier
-        uint256 limitingApy,        // @param Lottery annual per year (APY) rate 
+        uint256 limitingApy,        // @param Lottery annual per year (APY) rate
         uint8 bucketSlots           // @param Lottery bucket count 
     ) {
         _slots = bucketSlots;
-        _operator = operator;
         _controller = controller;
+        _coordinator = coordinator;
+        _reservePrice = ticketBasePrice;
         _limitLtv = ltvMultiplier;
         _limitApy = limitingApy;
 
@@ -168,7 +170,7 @@ contract LiquidLottery is ILiquidLottery {
         uint256 supply = _ticket.totalSupply();
         uint256 reserves = scale(_reserves, _decimalC, _decimalT);
 
-        if (supply == 0) return TICKET_BASE_PRICE;
+        if (supply == 0) return _reservePrice;
         
         return (reserves * 1e18) / supply;
     }
@@ -264,9 +266,9 @@ contract LiquidLottery is ILiquidLottery {
         }
 
         uint256 premium = currentPremium();
-        uint256 operatorShare = (premium * 1000) / 10000; // 10%
+        uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
         uint256 ticketShare = (premium * 2000) / 10000;   // 20%
-        uint256 prizeShare = premium - operatorShare - ticketShare; // 70%
+        uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
 
         if (_failsafe) {
             ticketShare += prizeShare;
@@ -278,7 +280,7 @@ contract LiquidLottery is ILiquidLottery {
             bucket.rewardCheckpoint += prizeShare; 
         }
 
-        _opfees += operatorShare;
+        _opfees += coordinatorShare;
         _reserves += ticketShare;
 
         emit Roll(block.number, entropy, bucketId, 0);
@@ -509,14 +511,14 @@ contract LiquidLottery is ILiquidLottery {
         emit Unlock(msg.sender, index, amount);
     }
 
-    /*   @dev Operator fee distribution                              */
-    function funnel() public {
-        require(_opfees > 0, "Not enough fees to funnel");
+    /*   @dev Coordinator fee distribution                              */
+    function funnel(uint256 amount) public {
+        require(_opfees > amount, "Not enough fees to funnel");
         
-        uint256 fees = _pool.withdraw(address(_collateral), _opfees, address(this));
+        uint256 fees = _pool.withdraw(address(_collateral), amount, address(this));
 
-        _opfees = 0;
-        _collateral.transferFrom(address(this), _operator, fees);
+        _opfees -= amount;
+        _collateral.transferFrom(address(this), _coordinator, fees);
 
         emit Funnel(fees);
     }
