@@ -319,7 +319,7 @@ contract LiquidLottery is ILiquidLottery {
         uint256 deposit = _pool.withdraw(address(_collateral), collateral, address(this));
 
         _reserves -= deposit;
-        _collateral.transferFrom(address(this), msg.sender, deposit);
+        _collateral.transfer(msg.sender, deposit);
 
         emit Exit(msg.sender, deposit, amount);
     }
@@ -347,7 +347,7 @@ contract LiquidLottery is ILiquidLottery {
 
         uint256 share = _pool.withdraw(address(_collateral), reward, address(this));
 
-        _collateral.transferFrom(address(this), msg.sender, share); 
+        _collateral.transfer(msg.sender, share); 
 
         emit Claim(msg.sender, index, reward);
     }
@@ -509,7 +509,7 @@ contract LiquidLottery is ILiquidLottery {
         vault.checkpoint = bucket.rewardCheckpoint;
         bucket.totalDeposits -= amount;
 
-        _ticket.transferFrom(address(this), msg.sender, amount);
+        _ticket.transfer(msg.sender, amount);
 
         emit Unlock(msg.sender, index, amount);
     }
@@ -521,7 +521,7 @@ contract LiquidLottery is ILiquidLottery {
         uint256 fees = _pool.withdraw(address(_collateral), amount, address(this));
 
         _opfees -= amount;
-        _collateral.transferFrom(address(this), _coordinator, fees);
+        _collateral.transfer(_coordinator, fees);
 
         emit Funnel(fees);
     }

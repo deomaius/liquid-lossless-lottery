@@ -39,7 +39,7 @@ contract LiquidLotteryTest is Test {
             10 ** 6,
             200000, 
             10000,
-            12
+            4
         );
         _collateral = IERC20Base(TOKEN_USDC_ADDRESS);
         _ticket = IERC20Base(_lottery._ticket());
@@ -57,26 +57,77 @@ contract LiquidLotteryTest is Test {
 
             vm.stopPrank();
         /* --------------------------------- */
-
-        vm.roll(block.number + 10); 
     }
 
     function testMint() public {
         /* -------------BENEFACTOR------------ */
-            vm.startPrank(PRANK_ADDRESS);
-
-            _lottery.currentEpoch();
+            vm.startPrank(BENEFACTOR_ADDRESS);
 
             _collateral.approve(address(_lottery), 1000 * 10 ** 6);
             _lottery.mint(1000 * 10 ** 6);
+
+            assertEq(_ticket.balanceOf(BENEFACTOR_ADDRESS), 1000 ether);
+            assertEq(_collateral.balanceOf(BENEFACTOR_ADDRESS), 9000 * 10 ** 6);
 
             vm.stopPrank();
         /* --------------------------------- */ 
     }
 
-    function testBurn() public {}
+    function testBurn() public {
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(BENEFACTOR_ADDRESS);
 
-    function testDraw() public {}
+            _collateral.approve(address(_lottery), 1000 * 10 ** 6);
+            _lottery.mint(1000 * 10 ** 6);
+
+            vm.warp(block.timestamp + 4 days + 1 minutes);
+
+            _ticket.approve(address(_lottery), 1000 ether);
+            _lottery.burn(1000 ether);
+
+            assertEq(_collateral.balanceOf(BENEFACTOR_ADDRESS), 10000 * 10 ** 6);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+    }
+
+    function testDraw() public {
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(BENEFACTOR_ADDRESS);
+
+            _collateral.approve(address(_lottery), 2000 * 10 ** 6);
+            _lottery.mint(2000 * 10 ** 6);
+            _ticket.approve(address(_lottery), 2000 ether);
+            _lottery.stake(1000 ether, 0);
+            _lottery.stake(1000 ether, 4);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            _collateral.approve(address(_lottery), 9999 * 10 ** 6);
+            _lottery.mint(9999 * 10 ** 6);
+            _ticket.approve(address(_lottery), 9999 ether);
+            _lottery.stake(3333 ether, 1);
+            _lottery.stake(3333 ether, 2);
+            _lottery.stake(3333 ether, 3);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+        vm.warp(block.timestamp + 6 days + 12 hours + 1 minute);
+
+        /* -------------CONTROLLER------------ */
+            vm.startPrank(CONTROLLER_ADDRESS);
+
+            _lottery.sync.call{ value: 34 gwei }("");
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+  
+    }
 
     function testStake() public {}
 
