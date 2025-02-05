@@ -328,7 +328,7 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Redeem rewards operation
         * @param index Bucket index value
     */
-    function claim(uint8 index) public onlyCycle(Epoch.Closed) {
+    function claim(uint8 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
 
@@ -358,7 +358,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
         * @param index Collateral denominated position value    
     */
-    function leverage(address from, uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
+    function leverage(address from, uint256 amount,  uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
         require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
@@ -397,7 +397,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
         * @param amount Collateral denominated debit value    
     */
-    function repay(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
+    function repay(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
         Credit storage quota = _credit[msg.sender];
         Note storage note = quota.notes[index];
@@ -475,7 +475,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
         * @param amount Ticket denominated stake value    
     */
-    function stake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
+    function stake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
 
         Stake storage vault = _stakes[msg.sender][index];
@@ -495,7 +495,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
         * @param amount Ticket denominated withdrawal value    
     */
-    function unstake(uint8 index, uint256 amount) public notCycle(Epoch.Closed) {
+    function unstake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
 
         Stake storage vault = _stakes[msg.sender][index];
