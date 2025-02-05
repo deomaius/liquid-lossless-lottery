@@ -24,6 +24,7 @@ contract LiquidLottery is ILiquidLottery {
     uint8 public _decimalC;
     uint8 public _decimalT;
 
+    uint256 public _start;
     uint256 public _opfees;
     uint256 public _limitLtv;
     uint256 public _limitApy;
@@ -50,9 +51,9 @@ contract LiquidLottery is ILiquidLottery {
     uint256 constant public CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
 
     constructor(
-        address pool,               // @param Aave lending pool address
+        address pool,               // @param Aave pool provider address
         address oracle,             // @param Witnet oracle address
-        address provider,           // @param Aave pool provider address
+        address provider,           // @param Aave data provider address
         address controller,         // @param Lottery controller address
         address collateral,         // @param Lottery collateral token address 
         address coordinator,        // @param Lottery coordinator address
@@ -64,6 +65,7 @@ contract LiquidLottery is ILiquidLottery {
         uint8 bucketSlots           // @param Lottery bucket count 
     ) {
         _slots = bucketSlots;
+        _start = block.timestamp;
         _controller = controller;
         _coordinator = coordinator;
         _reservePrice = ticketBasePrice;
@@ -73,7 +75,7 @@ contract LiquidLottery is ILiquidLottery {
         _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
-        _ticket = IERC20Base(address(new TaxableERC20(500, name, symbol, 0)));
+        _ticket = IERC20Base(address(new TaxableERC20(name, symbol, 500, 0)));
 
         (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
 
@@ -192,14 +194,15 @@ contract LiquidLottery is ILiquidLottery {
         * @return Current phase 
     */
     function currentEpoch() public view returns (Epoch) {
-        uint256 timeInCycle = block.timestamp % CYCLE;
+        uint256 elapsedTime = block.timestamp - _start;
+        uint256 timeInCycle = elapsedTime % CYCLE;
 
         if (timeInCycle < OPEN_EPOCH) {
-          return Epoch.Open;
+            return Epoch.Open;
         } else if (timeInCycle < OPEN_EPOCH + PENDING_EPOCH) {
-          return Epoch.Pending;
-        } else {
-          return Epoch.Closed;
+            return Epoch.Pending;
+        } else  {
+            return Epoch.Closed;
         }
     }
 
@@ -216,7 +219,7 @@ contract LiquidLottery is ILiquidLottery {
     
         uint256 alloc = (vault.deposit * 1e18) / bucket.totalDeposits;
         uint256 cycle = (_reserves * _limitApy * CYCLE) / (365 days * 10000);
-        uint256 position = (cycleApy * alloc) / 1e18;
+        uint256 position = cycle * alloc / 1e18;
     
         uint256 avgPremium = currentPremium() / _slots;
         uint256 userAvgPremium = (avgPremium * alloc) / 1e18;   

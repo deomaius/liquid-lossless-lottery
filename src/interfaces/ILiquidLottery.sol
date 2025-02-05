@@ -2,7 +2,7 @@ pragma solidity ^0.8.20;
 
 interface ILiquidLottery {
 
-    enum Epoch { Pending, Open, Closed }
+    enum Epoch { Open, Pending, Closed }
 
     struct Stake {
       uint256 deposit;                              // @param Ticket denominated stake value  

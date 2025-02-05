@@ -15,10 +15,10 @@ contract TaxableERC20 is ERC20 {
     event TaxRebate(address benefactor, uint256 amount);
 
     constructor(
-        uint256 rate,
-        uint256 supply,
         string memory name, 
-        string memory symbol, 
+        string memory symbol,
+        uint256 rate,
+        uint256 supply
     ) 
         ERC20(name, symbol) 
     {
