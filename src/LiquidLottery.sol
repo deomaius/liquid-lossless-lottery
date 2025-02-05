@@ -174,7 +174,9 @@ contract LiquidLottery is ILiquidLottery {
 
         if (supply == 0) return _reservePrice;
         
-        return (reserves * 1e18) / supply;
+        uint256 rate = (reserves * 1e18) / supply;
+
+        return scale(rate, _decimalT, _decimalC); 
     }
 
     /*
@@ -253,7 +255,7 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     /*   @dev Oracle reveal operation                              */
-    function roll() public onlyCycle(Epoch.Closed) { 
+    function draw() public onlyCycle(Epoch.Closed) { 
         require(isOracleReady(), "Oracle not ready");
 
         bytes32 entropy;
@@ -311,12 +313,12 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Settlement value
     */
     function burn(uint256 amount) public onlyCycle(Epoch.Pending) syncBlock {
-        uint256 allocation = amount * collateralPerShare() / 1e18;
-        uint256 collateral = scale(allocation, _decimalT, _decimalC);
+        uint256 rate = scale(collateralPerShare(), _decimalC, _decimalT);
+        uint256 allocation = scale(amount * rate / 1e18, _decimalT, _decimalC);
 
         _ticket.burn(msg.sender, amount);
 
-        uint256 deposit = _pool.withdraw(address(_collateral), collateral, address(this));
+        uint256 deposit = _pool.withdraw(address(_collateral), allocation, address(this));
 
         _reserves -= deposit;
         _collateral.transfer(msg.sender, deposit);

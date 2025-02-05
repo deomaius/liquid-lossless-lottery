@@ -7,11 +7,13 @@ import "@interfaces/IERC20Base.sol";
 import "@root/LiquidLottery.sol";
 import "@root/TaxableERC20.sol";
 
+import "./mock/MockLottery.sol";
+
 contract LiquidLotteryTest is Test {
 
     IERC20Base _ticket;
     IERC20Base _collateral;
-    LiquidLottery public _lottery;
+    MockLottery public _lottery;
 
     address constant PRANK_ADDRESS = 0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341;
     address constant BENEFACTOR_ADDRESS = 0x385ec61686050E78ED440Cd74d6Aa1Eb1fe767F9;
@@ -26,8 +28,10 @@ contract LiquidLotteryTest is Test {
     address constant WITNET_PROXY_ADDRESS = 0x77703aE126B971c9946d562F41Dd47071dA00777;
     address constant WITNET_ORACLE_ADDRESS = 0xC0FFEE98AD1434aCbDB894BbB752e138c1006fAB;
 
+    // @TODO:Math 
+
     function setUp() public {
-        _lottery = new LiquidLottery(
+        _lottery = new MockLottery(
             AAVE_POOL_PROVIDER,
             WITNET_ORACLE_ADDRESS,
             AAVE_DATA_PROVIDER,
@@ -117,16 +121,25 @@ contract LiquidLotteryTest is Test {
             vm.stopPrank();
         /* --------------------------------- */ 
 
-        vm.warp(block.timestamp + 6 days + 12 hours + 1 minute);
+        vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
         /* -------------CONTROLLER------------ */
             vm.startPrank(CONTROLLER_ADDRESS);
 
-            _lottery.sync.call{ value: 34 gwei }("");
+            _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
 
             vm.stopPrank();
         /* --------------------------------- */ 
-  
+
+        vm.warp(block.timestamp + 12 hours);
+
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            // @TODO
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
     }
 
     function testStake() public {}
