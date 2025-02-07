@@ -50,14 +50,15 @@ contract MockLottery is LiquidLottery {
         } else {
             Bucket storage bucket = _buckets[bucketId];
 
-            bucket.totalRewards += prizeShare;
-            bucket.rewardCheckpoint += prizeShare; 
+            uint256 rate = prizeShare * 1e18 / bucket.totalDeposits;
+
+            bucket.rewardCheckpoint += rate;
         }
 
         _opfees += coordinatorShare;
         _reserves += ticketShare;
 
-        emit Roll(block.number, result, bucketId, 0);
+        emit Roll(block.number, result, bucketId, prizeShare);
     }
 
 }

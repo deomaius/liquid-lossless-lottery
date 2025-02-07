@@ -11,9 +11,8 @@ interface ILiquidLottery {
     } 
 
     struct Bucket {
-      uint256 totalRewards;                         // @param Unclaimed bucket rewards  
       uint256 totalDeposits;                        // @param Total ticket denominated stake value
-      uint256 rewardCheckpoint;                     // @param Checkpoint value of totalRewards
+      uint256 rewardCheckpoint;                     // @param Checkpoint reward value 
     } 
 
     struct Note { 

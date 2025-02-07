@@ -184,7 +184,8 @@ contract LiquidLottery is ILiquidLottery {
         * @return Reserve interest premium
     */
     function currentPremium() public view returns (uint256) {
-        uint256 interest = _voucher.balanceOf(address(this)) - _opfees;
+        uint256 balance = _voucher.balanceOf(address(this));
+        uint256 interest = balance - _opfees;
 
         if (interest > _reserves) return interest - _reserves;
 
@@ -281,14 +282,15 @@ contract LiquidLottery is ILiquidLottery {
         } else {
             Bucket storage bucket = _buckets[bucketId];
 
-            bucket.totalRewards += prizeShare;
-            bucket.rewardCheckpoint += prizeShare; 
+            uint256 rate = prizeShare * 1e18 / bucket.totalDeposits;
+
+            bucket.rewardCheckpoint += rate;
         }
 
         _opfees += coordinatorShare;
         _reserves += ticketShare;
 
-        emit Roll(block.number, entropy, bucketId, 0);
+        emit Roll(block.number, entropy, bucketId, prizeShare);
     }
 
     /*
@@ -300,7 +302,9 @@ contract LiquidLottery is ILiquidLottery {
         _collateral.approve(address(_pool), amount);      
         _pool.supply(address(_collateral), amount, address(this), 0);
 
-        uint256 tickets = amount * 1e18 / collateralPerShare();
+        uint256 collateral = scale(amount, _decimalC, _decimalT);
+        uint256 rate = scale(collateralPerShare(), _decimalC, _decimalT);
+        uint256 tickets = collateral * 1e18 / rate;
 
         _reserves += amount;
         _ticket.mint(msg.sender, tickets);
@@ -330,7 +334,7 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Redeem rewards operation
         * @param index Bucket index value
     */
-    function claim(uint8 amount, uint8 index) public notCycle(Epoch.Closed) {
+    function claim(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
 
@@ -339,19 +343,19 @@ contract LiquidLottery is ILiquidLottery {
         require(bucket.rewardCheckpoint > vault.checkpoint, "Already claimed");
         require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
 
-        uint256 unclaimed = bucket.rewardCheckpoint - vault.checkpoint;
-        uint256 alloc = vault.deposit * 1e18 / bucket.totalDeposits;
-        uint256 prize = scale(unclaimed, _decimalC, _decimalT);
-        uint256 reward = scale(alloc * prize / 1e18, _decimalT, _decimalC);
+        uint256 rate = bucket.rewardCheckpoint - vault.checkpoint;
+        uint256 rewards = scale(amount, _decimalC, _decimalT);
+        uint256 unclaimed = rate * vault.deposit / 1e18;
 
-        bucket.totalRewards -= reward;
-        vault.checkpoint = bucket.rewardCheckpoint;
+        require(unclaimed >= amount, "Insufficient rewards");     
 
-        uint256 share = _pool.withdraw(address(_collateral), reward, address(this));
+        vault.checkpoint += (amount * 1e18) / vault.deposit;
+
+        uint256 share = _pool.withdraw(address(_collateral), amount, address(this));
 
         _collateral.transfer(msg.sender, share); 
 
-        emit Claim(msg.sender, index, reward);
+        emit Claim(msg.sender, index, amount);
     }
 
     /*

@@ -21,7 +21,7 @@ contract LiquidLotteryTest is Test {
     address constant COORDINATOR_ADDRESS = 0x2C51b758cda56c31EF4E77533226aFA2dE3829D2;
     address constant CONTROLLER_ADDRESS = 0xd780400322dbEE448a3C52290b8fb4Bc0aE3Cfa5;
 
-    address constant AAVE_DATA_PROVIDER = 0x057835Ad21a177dbdd3090bB1CAE03EaCF78Fc6d;
+    address constant AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3; 
     address constant AAVE_POOL_PROVIDER = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
     address constant TOKEN_USDC_ADDRESS = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant TOKEN_AUSDC_ADDRESS = 0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c;
@@ -95,7 +95,7 @@ contract LiquidLotteryTest is Test {
         /* --------------------------------- */ 
     }
 
-    function testDraw() public {
+    function testStakeDrawAndClaim() public {
         /* -------------BENEFACTOR------------ */
             vm.startPrank(BENEFACTOR_ADDRESS);
 
@@ -103,7 +103,7 @@ contract LiquidLotteryTest is Test {
             _lottery.mint(2000 * 10 ** 6);
             _ticket.approve(address(_lottery), 2000 ether);
             _lottery.stake(1000 ether, 0);
-            _lottery.stake(1000 ether, 4);
+            _lottery.stake(1000 ether, 2);
 
             vm.stopPrank();
         /* --------------------------------- */ 
@@ -123,28 +123,54 @@ contract LiquidLotteryTest is Test {
 
         vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
+        uint256 premium = _lottery.currentPremium() - 10000;
+
         /* -------------CONTROLLER------------ */
             vm.startPrank(CONTROLLER_ADDRESS);
+            vm.recordLogs();
 
             _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
+
+            Vm.Log[] memory entries = vm.getRecordedLogs();
+
+            assertEq(entries[0].topics[2], bytes32(uint256(2)));
 
             vm.stopPrank();
         /* --------------------------------- */ 
 
         vm.warp(block.timestamp + 12 hours);
+   
+        uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
+        uint256 ticketShare = (premium * 2000) / 10000;   // 20%
+        uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
+
+        uint256 counterpartyShare = (prizeShare * 3333 * 1e6) / 4333;
+        uint256 benefactorShare = (prizeShare * 1000 * 1e6) / 4333;
+
+        counterpartyShare = counterpartyShare / 1e6;
+        benefactorShare = benefactorShare / 1e6;
+
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(BENEFACTOR_ADDRESS);
+
+            console.log(msg.sender);
+
+            _lottery.claim(benefactorShare, 2);
+
+            vm.stopPrank();
+        /* --------------------------------- */
+
 
         /* -------------BENEFACTOR------------ */
             vm.startPrank(COUNTERPARTY_ADDRESS);
 
-            // @TODO
+            // Should not be 5530900 but 5530863
+            _lottery.claim(counterpartyShare, 2);
 
             vm.stopPrank();
-        /* --------------------------------- */ 
+        /* --------------------------------- */
+
     }
-
-    function testStake() public {}
-
-    function testClaim() public {}
 
     function testTaxes() public {}
 
