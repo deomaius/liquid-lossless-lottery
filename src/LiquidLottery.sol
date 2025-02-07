@@ -592,7 +592,7 @@ contract LiquidLottery is ILiquidLottery {
         } else if (d1 > d2) {
           uint256 f = 10 ** uint256(d1 - d2);
 
-          return (amount + f / 2) / f;
+          return amount / f;
         }
         return amount;
     }
