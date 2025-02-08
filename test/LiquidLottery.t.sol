@@ -74,7 +74,20 @@ contract LiquidLotteryTest is Test {
             assertEq(_collateral.balanceOf(BENEFACTOR_ADDRESS), 9000 * 10 ** 6);
 
             vm.stopPrank();
-        /* --------------------------------- */ 
+        /* --------------------------------- */
+
+        /* -------------BENEFACTOR------------ */
+           vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            _collateral.approve(address(_lottery), 1000 * 10 ** 6);
+            _lottery.mint(1000 * 10 ** 6);
+
+            assertEq(_ticket.balanceOf(COUNTERPARTY_ADDRESS), 1000 ether);
+            assertEq(_collateral.balanceOf(BENEFACTOR_ADDRESS), 9000 * 10 ** 6);
+
+            vm.stopPrank();
+        /* --------------------------------- */
+
     }
 
     function testBurn() public {
@@ -84,7 +97,33 @@ contract LiquidLotteryTest is Test {
             _collateral.approve(address(_lottery), 1000 * 10 ** 6);
             _lottery.mint(1000 * 10 ** 6);
 
-            vm.warp(block.timestamp + 4 days + 1 minutes);
+            vm.stopPrank();
+        /* --------------------------------- */ 
+ 
+        /* -------------COUNTERPARTY------------ */
+            vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            _collateral.approve(address(_lottery), 1000 * 10 ** 6);
+            _lottery.mint(1000 * 10 ** 6);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+        vm.warp(block.timestamp + 4 days + 1 minutes);
+
+        /* -------------COUNTERPARTY------------ */
+            vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            _ticket.approve(address(_lottery), 1000 ether);
+            _lottery.burn(1000 ether);
+
+            assertEq(_collateral.balanceOf(COUNTERPARTY_ADDRESS), 10000 * 10 ** 6);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(BENEFACTOR_ADDRESS);
 
             _ticket.approve(address(_lottery), 1000 ether);
             _lottery.burn(1000 ether);
@@ -123,7 +162,8 @@ contract LiquidLotteryTest is Test {
 
         vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
-        uint256 premium = _lottery.currentPremium() - 10000;
+        // Factor for percison loss  
+        uint256 premium = _lottery.currentPremium() - 5000;
 
         /* -------------CONTROLLER------------ */
             vm.startPrank(CONTROLLER_ADDRESS);
@@ -160,12 +200,29 @@ contract LiquidLotteryTest is Test {
             vm.stopPrank();
         /* --------------------------------- */
 
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            _lottery.claim(counterpartyShare, 2);
+
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        vm.warp(block.timestamp + 4 days);
 
         /* -------------BENEFACTOR------------ */
             vm.startPrank(COUNTERPARTY_ADDRESS);
 
-            // Should not be 5530900 but 5530863
-            _lottery.claim(counterpartyShare, 2);
+            _lottery.unstake(3333 ether, 2);
+            _ticket.approve(address(_lottery), 3333 ether);
+            _lottery.burn(3333 ether);
+
+            uint256 newBalance = 10000 * 10 ** 6 + counterpartyShare;
+            uint256 outstandingBalance = 6666 * 10 ** 6;
+            uint256 totalBalance = newBalance - outstandingBalance;
+
+            // Verify that the premium was added to the ticket balance 
+            assertGt(_collateral.balanceOf(COUNTERPARTY_ADDRESS), totalBalance);
 
             vm.stopPrank();
         /* --------------------------------- */

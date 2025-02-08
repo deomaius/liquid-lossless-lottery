@@ -75,7 +75,7 @@ contract LiquidLottery is ILiquidLottery {
         _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
-        _ticket = IERC20Base(address(new TaxableERC20(name, symbol, 500, 0)));
+        _ticket = IERC20Base(address(new TaxableERC20(name, symbol, address(this), 0, 500)));
 
         (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
 

@@ -17,15 +17,16 @@ contract TaxableERC20 is ERC20 {
     constructor(
         string memory name, 
         string memory symbol,
-        uint256 rate,
-        uint256 supply
+        address controller,
+        uint256 supply,
+        uint256 rate
     ) 
         ERC20(name, symbol) 
     {
         _tax = rate;
-        _controller = msg.sender;
+        _controller = controller;
 
-        _exempt[msg.sender] = true;
+        _exempt[controller] = true;
         _exempt[address(0)] = true;
         
         _mint(msg.sender, supply);
@@ -34,6 +35,12 @@ contract TaxableERC20 is ERC20 {
     modifier onlyController() {
         require(msg.sender == _controller, "Invalid controller");
         _;
+    }
+
+    function tax(address from, address to, uint256 amount) public returns (uint256) {
+        bool taxable = !_exempt[to] && !_exempt[from];
+
+        return taxable ? (amount * _tax) / 1e18 : 0;
     }
 
     function mint(address to, uint256 amount) public onlyController {
@@ -55,23 +62,23 @@ contract TaxableERC20 is ERC20 {
         emit TaxRebate(to, amount);
     }
 
-    function transfer(address to,  uint256 amount) virtual override public returns (bool) {
-        return transferFrom(msg.sender, to, amount);
-    }
+    function transfer(address to, uint256 amount) virtual override public returns (bool) {
+        uint256 tax = tax(msg.sender, to, amount);
+
+        if (tax > 0) _deductTax(msg.sender, tax);
+
+        super._transfer(msg.sender, to, amount - tax);
+
+        return true;
+    } 
 
     function transferFrom(address from, address to, uint256 amount) virtual override public returns (bool) {
-        uint256 tax = (amount * _tax) / 1e18;
+        uint256 tax = tax(from, to, amount);
 
-        super._spendAllowance(from, _msgSender(), amount);
+        super._spendAllowance(from, _msgSender(), amount - tax);
         super._transfer(from, to, amount - tax);
 
-        bool taxable = !_exempt[from] && tax > 0;
-
-        if (taxable) {
-          _rebates += tax;
-
-          super._burn(from, tax);
-        }
+        if (tax > 0) _deductTax(from, tax);
 
         return true;
     }
@@ -86,6 +93,12 @@ contract TaxableERC20 is ERC20 {
         _exempt[account] = true;
 
         emit TaxExemptionAdded(account);
+    }
+
+    function _deductTax(address from, uint256 amount) internal {
+        _rebates += amount;
+
+        super._burn(from, amount);
     }
 
 }
