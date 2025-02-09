@@ -480,6 +480,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Ticket denominated stake value    
     */
     function stake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
+        require(rewards(msg.sender, index) == 0, "Outstanding rewards");
         require(index <= _slots, "Invalid bucket index");
 
         Stake storage vault = _stakes[msg.sender][index];
@@ -500,6 +501,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Ticket denominated withdrawal value    
     */
     function unstake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
+        require(rewards(msg.sender, index) == 0, "Outstanding rewards");
         require(index <= _slots, "Invalid bucket index");
 
         Stake storage vault = _stakes[msg.sender][index];
