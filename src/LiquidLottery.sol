@@ -145,7 +145,9 @@ contract LiquidLottery is ILiquidLottery {
         Stake storage vault = _stakes[account][index];
         Bucket storage bucket = _buckets[index];
 
-        return bucket.rewardCheckpoint - vault.checkpoint;
+        uint256 rate = bucket.rewardCheckpoint - vault.checkpoint;
+
+        return  rate * vault.deposit / 1e18;
     }
 
 
@@ -332,22 +334,18 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Redeem rewards operation
+        * @param amount Claim proportion value
         * @param index Bucket index value
     */
     function claim(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
-        Bucket storage bucket = _buckets[index];
+
+        uint256 rewards = rewards(msg.sender, index);
 
         require(vault.deposit > 0, "Insufficient stake");
+        require(rewards >= amount && rewards > 0, "Insufficient rewards");     
         require(_credit[msg.sender].notes[index].debt == 0, "Active debt");  
-        require(bucket.rewardCheckpoint > vault.checkpoint, "Already claimed");
         require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
-
-        uint256 rate = bucket.rewardCheckpoint - vault.checkpoint;
-        uint256 rewards = scale(amount, _decimalC, _decimalT);
-        uint256 unclaimed = rate * vault.deposit / 1e18;
-
-        require(unclaimed >= amount, "Insufficient rewards");     
 
         vault.checkpoint += (amount * 1e18) / vault.deposit;
 
