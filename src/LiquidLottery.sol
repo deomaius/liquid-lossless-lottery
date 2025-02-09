@@ -431,6 +431,15 @@ contract LiquidLottery is ILiquidLottery {
         emit Repayment(msg.sender, index, recoup);
     } 
 
+    /*
+        * @dev Internal interest repayment handler
+        * @param interest Interest accrued for period
+        * @param premium Current reward premium
+        * @param amount Repayment value
+        * @param note Credit position note
+        * @param vault Stake position vault
+        * @return Excess repayment for principal
+    */
     function selfRepayment(
         uint256 interest,
         uint256 premium,
@@ -439,30 +448,35 @@ contract LiquidLottery is ILiquidLottery {
         Stake storage vault 
     ) internal returns (uint256) {
         interest += note.interest;
-
         uint256 recoup = amount + premium;
     
         if (recoup > 0) {
             if (recoup >= interest) {
                 note.interest = 0;
-                vault.checkpoint -= premium >= interest ? interest : premium;
+                vault.checkpoint += (interest * 1e18) / vault.deposit;
                 _reserves += interest;
 
                 return recoup - interest;
             }
         
             note.interest += interest - recoup;
-            vault.checkpoint -= premium;
+            vault.checkpoint += (recoup * 1e18) / vault.deposit;
             _reserves += recoup;
-        
+
             return 0;
         }
     
         note.interest = interest;
-    
+
         return 0;
     }
 
+    /*
+        * @dev Credit delegation handler
+        * @param to Target delegate address
+        * @param index Bucket index value
+        * @param duration Delegation timelock period
+    */
     function delegate(address to, uint8 index, uint256 duration) public {
         Delegate storage delegation = _credit[msg.sender].delegations[index];
         

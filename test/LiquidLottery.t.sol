@@ -163,7 +163,7 @@ contract LiquidLotteryTest is Test {
         vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
         // Factor for percison loss  
-        uint256 premium = _lottery.currentPremium() - 5000;
+        uint256 premium = _lottery.currentPremium() - 10000;
 
         /* -------------CONTROLLER------------ */
             vm.startPrank(CONTROLLER_ADDRESS);
@@ -213,6 +213,9 @@ contract LiquidLotteryTest is Test {
         /* -------------BENEFACTOR------------ */
             vm.startPrank(COUNTERPARTY_ADDRESS);
 
+            uint256 remainder = _lottery.rewards(COUNTERPARTY_ADDRESS, 2);
+
+            _lottery.claim(remainder, 2);
             _lottery.unstake(3333 ether, 2);
             _ticket.approve(address(_lottery), 3333 ether);
             _lottery.burn(3333 ether);
