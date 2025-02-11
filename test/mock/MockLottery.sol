@@ -14,6 +14,7 @@ contract MockLottery is LiquidLottery {
         string memory name,         // @param Lottery ticket name
         string memory symbol,       // @param Lottery ticket symbol 
         uint256 ticketBasePrice,    // @param Lottery ticket base conversion rate
+        uint256 ticketBaseTax,      // @param Lottery ticket tax rate
         uint256 ltvMultiplier,      // @param Lottery loan-to-value (LTV) multiplier
         uint256 limitingApy,        // @param Lottery annual per year (APY) rate
         uint8 bucketSlots           // @param Lottery bucket count
@@ -28,6 +29,7 @@ contract MockLottery is LiquidLottery {
             name,
             symbol,
             ticketBasePrice,
+            ticketBaseTax,
             ltvMultiplier,
             limitingApy,
             bucketSlots

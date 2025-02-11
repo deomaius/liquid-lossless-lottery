@@ -60,6 +60,7 @@ contract LiquidLottery is ILiquidLottery {
         string memory name,         // @param Lottery ticket name
         string memory symbol,       // @param Lottery ticket symbol 
         uint256 ticketBasePrice,    // @param Lottery ticket base conversion rate
+        uint256 ticketBaseTax,      // @param Lottery ticket tax rate
         uint256 ltvMultiplier,      // @param Lottery loan-to-value (LTV) multiplier
         uint256 limitingApy,        // @param Lottery annual per year (APY) rate
         uint8 bucketSlots           // @param Lottery bucket count 
@@ -75,7 +76,7 @@ contract LiquidLottery is ILiquidLottery {
         _collateral = IERC20Base(collateral);
         _oracle = IWitnetRandomnessV2(oracle);
         _pool = IAaveLendingPool(IAavePoolProvider(pool).getPool());
-        _ticket = IERC20Base(address(new TaxableERC20(name, symbol, address(this), 0, 500)));
+        _ticket = IERC20Base(address(new TaxableERC20(name, symbol, address(this), 0, ticketBaseTax)));
 
         (address voucher,,) = IAaveDataProvider(provider).getReserveTokensAddresses(collateral);
 

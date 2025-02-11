@@ -28,8 +28,6 @@ contract LiquidLotteryTest is Test {
     address constant WITNET_PROXY_ADDRESS = 0x77703aE126B971c9946d562F41Dd47071dA00777;
     address constant WITNET_ORACLE_ADDRESS = 0xC0FFEE98AD1434aCbDB894BbB752e138c1006fAB;
 
-    // @TODO:Math 
-
     function setUp() public {
         _lottery = new MockLottery(
             AAVE_POOL_PROVIDER,
@@ -41,6 +39,7 @@ contract LiquidLotteryTest is Test {
             "Test Ticket",
             "TICKET",
             10 ** 6,
+            5000,
             200000, 
             10000,
             4
@@ -224,7 +223,7 @@ contract LiquidLotteryTest is Test {
             uint256 outstandingBalance = 6666 * 10 ** 6;
             uint256 totalBalance = newBalance - outstandingBalance;
 
-            // Verify that the premium was added to the ticket balance 
+            // Verify premium 
             assertGt(_collateral.balanceOf(COUNTERPARTY_ADDRESS), totalBalance);
 
             vm.stopPrank();
@@ -232,9 +231,33 @@ contract LiquidLotteryTest is Test {
 
     }
 
-    function testTaxes() public {}
+    function testTaxesAndRebates() public {
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(BENEFACTOR_ADDRESS);
 
-    function testRebates() public {}
+            _collateral.approve(address(_lottery), 1000 * 10 ** 6);
+            _lottery.mint(1000 * 10 ** 6);
+            _ticket.transfer(COUNTERPARTY_ADDRESS, 5000 * 10 ** 6);
+
+            uint taxAmount = 25 * 10 ** 6;
+            uint transferAmount = (5000 * 10 ** 6) - taxAmount;
+
+            assertEq(_ticket.balanceOf(COUNTERPARTY_ADDRESS), transferAmount);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+        /* -------------CONTROLLER------------ */
+            vm.startPrank(CONTROLLER_ADDRESS);
+
+            _lottery.issueRebate(CONTROLLER_ADDRESS, 25 * 10 ** 6);
+
+            assertEq(_ticket.balanceOf(CONTROLLER_ADDRESS), 25 * 10 ** 6);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+    }
 
     function testLeverageSelfRepayment() public {}
 

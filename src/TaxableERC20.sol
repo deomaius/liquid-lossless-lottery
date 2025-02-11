@@ -23,6 +23,8 @@ contract TaxableERC20 is ERC20 {
     ) 
         ERC20(name, symbol) 
     {
+        require(_tax < 10000, "Invalid tax bps format");
+
         _tax = rate;
         _controller = controller;
 
@@ -40,7 +42,7 @@ contract TaxableERC20 is ERC20 {
     function tax(address from, address to, uint256 amount) public returns (uint256) {
         bool taxable = !_exempt[to] && !_exempt[from];
 
-        return taxable ? (amount * _tax) / 1e18 : 0;
+        return taxable ? (amount * _tax) / 10000 : 0;
     }
 
     function mint(address to, uint256 amount) public onlyController {
@@ -69,8 +71,8 @@ contract TaxableERC20 is ERC20 {
 
         super._transfer(msg.sender, to, amount - tax);
 
-        return true;
-    } 
+        return true; 
+    }
 
     function transferFrom(address from, address to, uint256 amount) virtual override public returns (bool) {
         uint256 tax = tax(from, to, amount);
@@ -84,6 +86,8 @@ contract TaxableERC20 is ERC20 {
     }
 
     function setTax(uint256 rate) external onlyController {
+        require(_tax < 10000, "Invalid tax bps format");
+
         _tax = rate;
 
         emit TaxRateUpdated(rate);
