@@ -61,16 +61,19 @@ contract LiquidLottery is ILiquidLottery {
         string memory symbol,       // @param Lottery ticket symbol 
         uint256 ticketBasePrice,    // @param Lottery ticket base conversion rate
         uint256 ticketBaseTax,      // @param Lottery ticket tax rate
-        uint256 ltvMultiplier,      // @param Lottery loan-to-value (LTV) multiplier
+        uint256 limitingLtv,        // @param Lottery loan-to-value (LTV) multiplier
         uint256 limitingApy,        // @param Lottery annual per year (APY) rate
         uint8 bucketSlots           // @param Lottery bucket count 
     ) {
+        require(limitingLtv < 1e18, "Invalid ltv format");
+        require(limitingApy < 10000, "Invalid apy bps format");
+
         _slots = bucketSlots;
         _start = block.timestamp;
         _controller = controller;
         _coordinator = coordinator;
         _reservePrice = ticketBasePrice;
-        _limitLtv = ltvMultiplier;
+        _limitLtv = limitingLtv;
         _limitApy = limitingApy;
 
         _collateral = IERC20Base(collateral);
@@ -88,7 +91,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*    @dev Control statement for configuration        */
     modifier onlyController() {
-        require (msg.sender != _controller, "Invalid controller");
+        require (msg.sender == _controller, "Invalid controller");
         _;
     }
 
@@ -110,13 +113,17 @@ contract LiquidLottery is ILiquidLottery {
         _;
     }
 
+
     /*
         * @dev Outstanding debt helper
         * @param account Target address
         * @return Collateral denominated debt
     */
-    function debt(address account) public view returns (uint256) {
-        return _credit[account].liabilities;
+    function debt(address account, uint8 index) public view returns (uint256) {
+        uint256 premium = interestDue(account, index);
+        uint256 principal = _credit[account].notes[index].debt;
+
+        return principal + premium;
     }
 
     /*
@@ -133,7 +140,7 @@ contract LiquidLottery is ILiquidLottery {
             base += rewards(delegator, index);
         }
     
-        return base * _limitLtv / 10000;
+        return base * _limitLtv / 1e18;
     }
 
     /*
@@ -151,6 +158,20 @@ contract LiquidLottery is ILiquidLottery {
         return  rate * vault.deposit / 1e18;
     }
 
+    /*
+        * @dev Outstanding interest helper
+        * @param account Target address
+        * @return Collateral denominated 
+    */
+    function interestDue(address account, uint8 index) public view returns (uint256) {
+        Note storage note = _credit[account].notes[index];
+
+        uint256 t = block.timestamp - note.timestamp;
+        uint256 earned = rewards(msg.sender, index);
+        uint256 interest = note.principal * _limitApy / 1e18;
+
+        return interest * t / 10000 / 365 days;
+    }
 
     /*
         * @dev Delegated address helper
@@ -344,8 +365,8 @@ contract LiquidLottery is ILiquidLottery {
         uint256 rewards = rewards(msg.sender, index);
 
         require(vault.deposit > 0, "Insufficient stake");
+        require(debt(msg.sender, index) == 0, "Active debt");  
         require(rewards >= amount && rewards > 0, "Insufficient rewards");     
-        require(_credit[msg.sender].notes[index].debt == 0, "Active debt");  
         require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
 
         vault.checkpoint += (amount * 1e18) / vault.deposit;
@@ -363,13 +384,13 @@ contract LiquidLottery is ILiquidLottery {
         * @param index Bucket index value
         * @param index Collateral denominated position value    
     */
-    function leverage(address from, uint256 amount,  uint8 index) public notCycle(Epoch.Closed) {
+    function leverage(address from, uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
         require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
-        uint256 position = amount * 10000 / _limitLtv; 
+        uint256 position = amount * 1e18 / _limitLtv; 
         uint256 earned =  rewards(from, index);
-        uint256 collateral = scale(position, _decimalV, _decimalT);
+        uint256 collateral = scale(position, _decimalC, _decimalT);
 
         Credit storage quota = _credit[from];
         Stake storage vault = _stakes[from][index];
@@ -407,10 +428,8 @@ contract LiquidLottery is ILiquidLottery {
         Credit storage quota = _credit[msg.sender];
         Note storage note = quota.notes[index];
 
-        uint256 t = block.timestamp - note.timestamp;
         uint256 earned = rewards(msg.sender, index);
-        uint256 interest = note.principal * _limitApy / 1000;
-        uint256 premium = interest * t / 10000 / 365 days;
+        uint256 premium = interestDue(msg.sender, index);
 
         require(index <= _slots, "Invalid bucket index");
 
@@ -561,6 +580,8 @@ contract LiquidLottery is ILiquidLottery {
         * @param apy Pool annual per year (APY) rate
     */
     function setApy(uint256 apy) public onlyController {
+        require(apy < 10000, "Invalid apy bps format");
+
         _limitApy = apy;
 
         emit Configure(apy);
