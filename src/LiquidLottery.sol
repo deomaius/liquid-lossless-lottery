@@ -153,9 +153,11 @@ contract LiquidLottery is ILiquidLottery {
         Stake storage vault = _stakes[account][index];
         Bucket storage bucket = _buckets[index];
 
+        if (bucket.rewardCheckpoint < vault.checkpoint) return 0;
+
         uint256 rate = bucket.rewardCheckpoint - vault.checkpoint;
 
-        return  rate * vault.deposit / 1e18;
+        return rate * vault.deposit / 1e18;
     }
 
     /*
@@ -167,10 +169,9 @@ contract LiquidLottery is ILiquidLottery {
         Note storage note = _credit[account].notes[index];
 
         uint256 t = block.timestamp - note.timestamp;
-        uint256 earned = rewards(msg.sender, index);
-        uint256 interest = note.principal * _limitApy / 1e18;
+        uint256 premium = note.principal * _limitApy / 10000;
 
-        return interest * t / 10000 / 365 days;
+        return note.interest + premium * t / 365 days;
     }
 
     /*
@@ -248,9 +249,9 @@ contract LiquidLottery is ILiquidLottery {
         uint256 cycle = (_reserves * _limitApy * CYCLE) / (365 days * 10000);
         uint256 position = cycle * alloc / 1e18;
     
-        uint256 avgPremium = currentPremium() / _slots;
-        uint256 userAvgPremium = (avgPremium * alloc) / 1e18;   
-        uint256 totalPerCycle = userAvgPremium + position;
+        uint256 premiumPerSlot = currentPremium() / _slots;
+        uint256 avgPremium = premiumPerSlot * alloc / 1e18;   
+        uint256 totalPerCycle = avgPremium + position;
     
         if (totalPerCycle == 0) return type(uint256).max;
     
@@ -386,20 +387,19 @@ contract LiquidLottery is ILiquidLottery {
     */
     function leverage(address from, uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
-        require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
-        uint256 position = amount * 1e18 / _limitLtv; 
-        uint256 earned =  rewards(from, index);
-        uint256 collateral = scale(position, _decimalC, _decimalT);
+        uint256 collateral = amount * 1e18 / _limitLtv; 
+        uint256 earned = rewards(from, index);
 
         Credit storage quota = _credit[from];
         Stake storage vault = _stakes[from][index];
         Note storage note = quota.notes[index];
 
-        require(position <= earned, "Insufficient rewards for collateral");
+        require(collateral <= earned, "Insufficient rewards for collateral");
         require(delegatedTo(from, index) == msg.sender, "Not valid delegate");
+        require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
-        _reserves += position;
+        _reserves += collateral;
 
         uint256 tickets = collateral * 1e18 / collateralPerShare();
  
@@ -409,7 +409,7 @@ contract LiquidLottery is ILiquidLottery {
         note.timestamp = block.timestamp;
         quota.liabilities += amount;
         vault.outstanding += tickets;
-        vault.checkpoint -= position;
+        vault.checkpoint = _buckets[index].rewardCheckpoint;
         vault.deposit += tickets;
 
         _ticket.mint(address(this), tickets);  
@@ -438,6 +438,7 @@ contract LiquidLottery is ILiquidLottery {
         note.debt -= recoup;
         quota.liabilities -= recoup;
         note.timestamp = block.timestamp;
+        vault.checkpoint = _buckets[index].rewardCheckpoint;
 
         _collateral.transferFrom(msg.sender, address(this), amount);
 
@@ -473,14 +474,12 @@ contract LiquidLottery is ILiquidLottery {
         if (recoup > 0) {
             if (recoup >= interest) {
                 note.interest = 0;
-                vault.checkpoint += (interest * 1e18) / vault.deposit;
                 _reserves += interest;
 
                 return recoup - interest;
             }
-        
+
             note.interest += interest - recoup;
-            vault.checkpoint += (recoup * 1e18) / vault.deposit;
             _reserves += recoup;
 
             return 0;

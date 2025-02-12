@@ -276,6 +276,7 @@ contract LiquidLotteryTest is Test {
             vm.startPrank(COUNTERPARTY_ADDRESS);
 
             _collateral.approve(address(_lottery), 3333 * 10 ** 6);
+            _lottery.mint(3333 * 10 ** 6);
             _ticket.approve(address(_lottery), 3333 ether);
             _lottery.stake(3333 ether, 1);
 
@@ -311,12 +312,15 @@ contract LiquidLotteryTest is Test {
             uint256 preCredit = _lottery.credit(BENEFACTOR_ADDRESS, 2, address(0x0));
 
             _lottery.leverage(BENEFACTOR_ADDRESS, preCredit, 2);
+            _lottery.rewards(BENEFACTOR_ADDRESS, 2);
 
             uint256 postCredit = _lottery.credit(BENEFACTOR_ADDRESS, 2, address(0x0));
+            uint256 postRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
             uint256 collateralBalance = 9000 * 10 ** 6 + preCredit;
 
             assertEq(_collateral.balanceOf(BENEFACTOR_ADDRESS), collateralBalance);
             assertEq(preCredit, preRewards / 2);
+            assertEq(postRewards, 0);
             assertEq(postCredit, 0);
 
             vm.stopPrank();
@@ -344,8 +348,6 @@ contract LiquidLotteryTest is Test {
             vm.stopPrank();
         /* --------------------------------- */ 
     }
-
-    function testLeverageManualRepayment() public {}
 
     function testDelegation() public {}
 
