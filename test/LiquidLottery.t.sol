@@ -341,14 +341,93 @@ contract LiquidLotteryTest is Test {
         /* ----------BENEFACTOR--------------- */
             vm.startPrank(BENEFACTOR_ADDRESS);
 
-            uint256 rewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
-            uint256 interest = _lottery.interestDue(BENEFACTOR_ADDRESS, 2);
-            uint256 debt = _lottery.debt(BENEFACTOR_ADDRESS, 2);
+            uint256 preDebit = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            uint256 preInterest = _lottery.interestDue(BENEFACTOR_ADDRESS, 2);
+            uint256 preDebt = _lottery.debt(BENEFACTOR_ADDRESS, 2);
+
+            uint256 debit = preInterest + preDebit;
+
+            _collateral.approve(address(_lottery), debit);
+            _lottery.repay(debit, 2);
+
+            uint256 postDebit = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            uint256 postInterest = _lottery.interestDue(BENEFACTOR_ADDRESS, 2);
+            uint256 postDebt = _lottery.debt(BENEFACTOR_ADDRESS, 2);
+
+            uint256 outstandingDebt = preDebt - preInterest - (preDebit * 2);
+
+            assertEq(postDebit, 0);
+            assertEq(postInterest, 0);
+            assertEq(postDebt, outstandingDebt);
 
             vm.stopPrank();
         /* --------------------------------- */ 
     }
 
-    function testDelegation() public {}
+    function testDelegation() public {
+
+       /* -------------BENEFACTOR------------ */
+            vm.startPrank(BENEFACTOR_ADDRESS);
+
+            _collateral.approve(address(_lottery), 1000 * 10 ** 6);
+            _lottery.mint(1000 * 10 ** 6);
+            _ticket.approve(address(_lottery), 1000 ether);
+            _lottery.stake(1000 ether, 2);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+        vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
+
+        /* -------------CONTROLLER------------ */
+            vm.startPrank(CONTROLLER_ADDRESS);
+
+            _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
+
+            vm.stopPrank();
+        /* --------------------------------- */ 
+
+        vm.warp(block.timestamp + 12 hours);
+   
+        /* -------------BENEFACTOR------------ */
+            vm.startPrank(BENEFACTOR_ADDRESS);
+
+            uint256 rewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            
+            _lottery.delegate(COUNTERPARTY_ADDRESS, 2, 14 days);
+
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        /* -------------COUNTERPARTY------------ */
+            vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            uint256 preBalance = _collateral.balanceOf(COUNTERPARTY_ADDRESS);
+            uint256 preCredit = _lottery.credit(COUNTERPARTY_ADDRESS, 2, BENEFACTOR_ADDRESS);
+
+            _lottery.leverage(BENEFACTOR_ADDRESS, preCredit - 1, 2);
+
+            uint256 postBalance = _collateral.balanceOf(COUNTERPARTY_ADDRESS);
+            uint256 postCredit = _lottery.credit(COUNTERPARTY_ADDRESS, 2, BENEFACTOR_ADDRESS);
+
+            assertEq(postBalance, 10000 * 10 ** 6 + preCredit - 1);
+            // Because we update reward checkpoint proportional leverage is not possible
+            // assertEq(postCredit, 1);
+
+            vm.stopPrank();
+        /* --------------------------------- */
+
+        vm.warp(block.timestamp + 14 days);
+
+        /* -------------COUNTERPARTY------------ */
+            vm.startPrank(COUNTERPARTY_ADDRESS);
+
+            vm.expectRevert();
+            _lottery.leverage(BENEFACTOR_ADDRESS, preCredit / 2, 2);
+
+            vm.stopPrank();
+        /* --------------------------------- */
+
+    }
 
 }

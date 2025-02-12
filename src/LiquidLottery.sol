@@ -136,7 +136,7 @@ contract LiquidLottery is ILiquidLottery {
     function credit(address account, uint8 index, address delegator) public view returns (uint256) {
         uint256 base = rewards(account, index);
 
-        if (account != delegator && delegatedTo(account, index) == delegator) {
+        if (account != delegator && delegatedTo(delegator, index) == account) {
             base += rewards(delegator, index);
         }
     
