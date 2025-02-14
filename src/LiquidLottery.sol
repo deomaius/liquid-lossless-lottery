@@ -157,7 +157,7 @@ contract LiquidLottery is ILiquidLottery {
 
         uint256 rate = bucket.rewardCheckpoint - vault.checkpoint;
 
-        return rate * vault.deposit / 1e18;
+        return rate * scale(vault.deposit, _decimalT, _decimalC) / 1e18;
     }
 
     /*
@@ -306,8 +306,9 @@ contract LiquidLottery is ILiquidLottery {
             prizeShare = 0; 
         } else {
             Bucket storage bucket = _buckets[bucketId];
-
-            uint256 rate = prizeShare * 1e18 / bucket.totalDeposits;
+            
+            uint256 prize = scale(prizeShare, _decimalC, _decimalT);
+            uint256 rate = prize * 1e18 / bucket.totalDeposits;
 
             bucket.rewardCheckpoint += rate;
         }
@@ -317,6 +318,36 @@ contract LiquidLottery is ILiquidLottery {
 
         emit Roll(block.number, entropy, bucketId, prizeShare);
     }
+
+    /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
+    function draw(bytes32 result) public onlyCycle(Epoch.Closed) {  
+        uint8 index = uint8(uint256(result) % _slots);
+
+        uint8 bucketId = index > _slots ? _slots : index;
+
+        uint256 premium = currentPremium();
+        uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
+        uint256 ticketShare = (premium * 2000) / 10000;   // 20%
+        uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
+
+        if (_failsafe) {
+            ticketShare += prizeShare;
+            prizeShare = 0; 
+        } else {
+            Bucket storage bucket = _buckets[bucketId];
+
+            uint256 prize = scale(prizeShare, _decimalC, _decimalT);
+            uint256 rate = prize * 1e18 / bucket.totalDeposits;
+
+            bucket.rewardCheckpoint += rate;
+        }
+
+        _opfees += coordinatorShare;
+        _reserves += ticketShare;
+
+        emit Roll(block.number, result, bucketId, prizeShare);
+    }
+    /* --------------------MOCK FUNCTION ------------------------- */
 
     /*
         * @dev Mint ticket operation
@@ -370,7 +401,7 @@ contract LiquidLottery is ILiquidLottery {
         require(rewards >= amount && rewards > 0, "Insufficient rewards");     
         require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
 
-        vault.checkpoint += (amount * 1e18) / vault.deposit;
+        _moveCheckpoint(vault, index, amount, rewards);
 
         uint256 share = _pool.withdraw(address(_collateral), amount, address(this));
 
@@ -388,34 +419,38 @@ contract LiquidLottery is ILiquidLottery {
     function leverage(address from, uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
 
-        uint256 collateral = amount * 1e18 / _limitLtv; 
         uint256 earned = rewards(from, index);
+        uint256 collateral = scale(amount, _decimalC, _decimalT) * 1e18 / _limitLtv;
 
         Credit storage quota = _credit[from];
         Stake storage vault = _stakes[from][index];
         Note storage note = quota.notes[index];
 
-        require(collateral <= earned, "Insufficient rewards for collateral");
+        require(amount <= earned, "Insufficient rewards for collateral");
         require(delegatedTo(from, index) == msg.sender, "Not valid delegate");
         require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
-        _reserves += collateral;
+        uint256 position = scale(collateral, _decimalT, _decimalC);
 
-        uint256 tickets = collateral * 1e18 / collateralPerShare();
- 
+        _reserves += position;
+
+        uint256 tickets = position * 1e18 / collateralPerShare();
+  
         note.debt += amount;
         note.principal += amount; 
         note.collateral += tickets;
         note.timestamp = block.timestamp;
         quota.liabilities += amount;
         vault.outstanding += tickets;
-        vault.checkpoint = _buckets[index].rewardCheckpoint;
         vault.deposit += tickets;
 
-        _ticket.mint(address(this), tickets);  
-        _pool.withdraw(address(_collateral), amount, msg.sender);
+        uint256 prevCheckpoint = _buckets[index].rewardCheckpoint;
 
-        emit Leverage(from, msg.sender, collateral, amount);
+        _moveCheckpoint(vault, index, collateral, earned);
+        _pool.withdraw(address(_collateral), amount, msg.sender);
+        _ticket.mint(address(this), tickets);  
+
+        emit Leverage(from, msg.sender, prevCheckpoint, vault.checkpoint);
     }
 
     /*
@@ -438,8 +473,8 @@ contract LiquidLottery is ILiquidLottery {
         note.debt -= recoup;
         quota.liabilities -= recoup;
         note.timestamp = block.timestamp;
-        vault.checkpoint = _buckets[index].rewardCheckpoint;
 
+        _moveCheckpoint(vault, index, amount + earned, earned);
         _collateral.transferFrom(msg.sender, address(this), amount);
 
         if (note.debt == 0) {
@@ -513,8 +548,8 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Ticket denominated stake value    
     */
     function stake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
-        require(rewards(msg.sender, index) == 0, "Outstanding rewards");
         require(index <= _slots, "Invalid bucket index");
+        require(rewards(msg.sender, index) == 0, "Outstanding rewards");
 
         Stake storage vault = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
@@ -534,8 +569,8 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Ticket denominated withdrawal value    
     */
     function unstake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
-        require(rewards(msg.sender, index) == 0, "Outstanding rewards");
         require(index <= _slots, "Invalid bucket index");
+        require(rewards(msg.sender, index) == 0, "Outstanding rewards");
 
         Stake storage vault = _stakes[msg.sender][index];
         Bucket storage bucket = _buckets[index];
@@ -621,7 +656,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param d2 Token 'to' decimals
         * @return Token 'to' denominated value
     */
-    function scale(uint256 amount, uint8 d1, uint8 d2) internal pure returns (uint256) {
+    function scale(uint256 amount, uint8 d1, uint8 d2) public view returns (uint256) {
         if (d1 < d2) {
           return amount * (10 ** uint256(d2 - d1));
         } else if (d1 > d2) {
@@ -630,6 +665,23 @@ contract LiquidLottery is ILiquidLottery {
           return amount / f;
         }
         return amount;
+    }
+
+
+    function _moveCheckpoint(
+        Stake storage vault,
+        uint8 index,
+        uint256 amount,
+        uint256 rewards
+    ) internal {
+        Bucket storage bucket = _buckets[index];
+
+        rewards = scale(rewards, _decimalC, _decimalT);
+
+        uint256 deltaRate = bucket.rewardCheckpoint - vault.checkpoint; 
+        uint256 proportion = amount * 1e18 / rewards;
+
+        vault.checkpoint += deltaRate * proportion / 1e18;
     }
 
 }
