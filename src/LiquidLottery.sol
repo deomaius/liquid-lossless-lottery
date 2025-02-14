@@ -290,7 +290,7 @@ contract LiquidLottery is ILiquidLottery {
         try _oracle.fetchRandomnessAfter(_lastBlockSync) returns (bytes32 result) {
             uint8 index = uint8(uint256(result) % _slots);
 
-            bucketId = index > 9 ? index - 1 : index;
+            bucketId = index > _slots ? _slots : index;
             entropy = result;
         } catch {
             _failsafe = true;
