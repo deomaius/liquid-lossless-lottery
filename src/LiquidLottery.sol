@@ -10,8 +10,8 @@ import { IERC20Base } from "@interfaces/IERC20Base.sol";
 import { TaxableERC20 } from "./TaxableERC20.sol";
 
 /*
-    * @title Liquid Lossless Lottery
     * @author deomaius
+    * @title Liquid Lossless Lottery
     * @description An egalitarian prize-savings pool with a liquid ticket system 
 */
 
@@ -163,7 +163,7 @@ contract LiquidLottery is ILiquidLottery {
     /*
         * @dev Outstanding interest helper
         * @param account Target address
-        * @return Collateral denominated 
+        * @return Collateral denominated interest 
     */
     function interestDue(address account, uint8 index) public view returns (uint256) {
         Note storage note = _credit[account].notes[index];
@@ -241,7 +241,7 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Loan amount
         * @return Expected repayment time in seconds
     */
-    function repaymentTime(address from, uint8 index, uint256 amount) public view returns (uint256) {
+    function timeToRepay(address from, uint8 index, uint256 amount) public view returns (uint256) {
         Bucket storage bucket = _buckets[index];
         Stake storage vault = _stakes[from][index];
     
@@ -395,13 +395,14 @@ contract LiquidLottery is ILiquidLottery {
         Stake storage vault = _stakes[msg.sender][index];
 
         uint256 rewards = rewards(msg.sender, index);
+        uint256 withdrawal = scale(amount, _decimalC, _decimalT);
 
         require(vault.deposit > 0, "Insufficient stake");
         require(debt(msg.sender, index) == 0, "Active debt");  
         require(rewards >= amount && rewards > 0, "Insufficient rewards");     
         require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
 
-        _moveCheckpoint(vault, index, amount, rewards);
+        _moveCheckpoint(vault, index, withdrawal, rewards);
 
         uint256 share = _pool.withdraw(address(_collateral), amount, address(this));
 
@@ -420,7 +421,6 @@ contract LiquidLottery is ILiquidLottery {
         require(index <= _slots, "Invalid bucket index");
 
         uint256 earned = rewards(from, index);
-        uint256 collateral = scale(amount, _decimalC, _decimalT) * 1e18 / _limitLtv;
 
         Credit storage quota = _credit[from];
         Stake storage vault = _stakes[from][index];
@@ -430,6 +430,7 @@ contract LiquidLottery is ILiquidLottery {
         require(delegatedTo(from, index) == msg.sender, "Not valid delegate");
         require(credit(msg.sender, index, from) >= amount, "Insufficient credit");
 
+        uint256 collateral = scale(amount, _decimalC, _decimalT) * 1e18 / _limitLtv;
         uint256 position = scale(collateral, _decimalT, _decimalC);
 
         _reserves += position;
@@ -444,13 +445,11 @@ contract LiquidLottery is ILiquidLottery {
         vault.outstanding += tickets;
         vault.deposit += tickets;
 
-        uint256 prevCheckpoint = _buckets[index].rewardCheckpoint;
-
         _moveCheckpoint(vault, index, collateral, earned);
         _pool.withdraw(address(_collateral), amount, msg.sender);
         _ticket.mint(address(this), tickets);  
 
-        emit Leverage(from, msg.sender, prevCheckpoint, vault.checkpoint);
+        emit Leverage(from, msg.sender, collateral, amount);
     }
 
     /*
@@ -468,13 +467,14 @@ contract LiquidLottery is ILiquidLottery {
 
         require(index <= _slots, "Invalid bucket index");
 
+        uint256 expense = scale(amount + earned, _decimalC, _decimalT);
         uint256 recoup = selfRepayment(premium, earned, amount, note, vault);
 
         note.debt -= recoup;
         quota.liabilities -= recoup;
         note.timestamp = block.timestamp;
 
-        _moveCheckpoint(vault, index, amount + earned, earned);
+        _moveCheckpoint(vault, index, expense, earned);
         _collateral.transferFrom(msg.sender, address(this), amount);
 
         if (note.debt == 0) {
@@ -544,8 +544,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Bucket stake operation
+        * @param amount Ticket denominated stake value
         * @param index Bucket index value
-        * @param amount Ticket denominated stake value    
     */
     function stake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
@@ -667,7 +667,13 @@ contract LiquidLottery is ILiquidLottery {
         return amount;
     }
 
-
+    /*
+        * @dev Checkpoint state handler
+        * @param vault Checkpoint address deposit
+        * @param index Bucket index value
+        * @param amount Reward value amount scaled 
+        * @param rewards Rewards value unscaled
+    */
     function _moveCheckpoint(
         Stake storage vault,
         uint8 index,

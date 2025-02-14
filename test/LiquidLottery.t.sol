@@ -191,9 +191,11 @@ contract LiquidLotteryTest is Test {
         /* -------------BENEFACTOR------------ */
             vm.startPrank(BENEFACTOR_ADDRESS);
 
-            console.log(msg.sender);
-
             _lottery.claim(benefactorShare, 2);
+
+            uint256 remainder = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+
+            _lottery.claim(remainder, 2);
 
             vm.stopPrank();
         /* --------------------------------- */
@@ -203,6 +205,10 @@ contract LiquidLotteryTest is Test {
 
             _lottery.claim(counterpartyShare, 2);
 
+            remainder = _lottery.rewards(COUNTERPARTY_ADDRESS, 2);
+            
+            _lottery.claim(remainder, 2);
+
             vm.stopPrank();
         /* --------------------------------- */
 
@@ -211,9 +217,6 @@ contract LiquidLotteryTest is Test {
         /* -------------BENEFACTOR------------ */
             vm.startPrank(COUNTERPARTY_ADDRESS);
 
-            uint256 remainder = _lottery.rewards(COUNTERPARTY_ADDRESS, 2);
-
-            _lottery.claim(remainder, 2);
             _lottery.unstake(3333 ether, 2);
             _ticket.approve(address(_lottery), 3333 ether);
             _lottery.burn(3333 ether);
@@ -307,20 +310,20 @@ contract LiquidLotteryTest is Test {
         /* -------------BENEFACTOR------------ */
             vm.startPrank(BENEFACTOR_ADDRESS);
 
-                uint256 preRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
-                uint256 preCredit = _lottery.credit(BENEFACTOR_ADDRESS, 2, address(0x0));
+            uint256 preRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            uint256 preCredit = _lottery.credit(BENEFACTOR_ADDRESS, 2, address(0x0));
 
-                _lottery.leverage(BENEFACTOR_ADDRESS, preCredit, 2);
-                _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            _lottery.leverage(BENEFACTOR_ADDRESS, preCredit, 2);
+            _lottery.rewards(BENEFACTOR_ADDRESS, 2);
 
-                uint256 postCredit = _lottery.credit(BENEFACTOR_ADDRESS, 2, address(0x0));
-                uint256 postRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
-                uint256 collateralBalance = 9000 * 10 ** 6 + preCredit;
+            uint256 postCredit = _lottery.credit(BENEFACTOR_ADDRESS, 2, address(0x0));
+            uint256 postRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            uint256 collateralBalance = 9000 * 10 ** 6 + preCredit;
 
-                assertEq(_collateral.balanceOf(BENEFACTOR_ADDRESS), collateralBalance);
-                assertEq(preCredit, preRewards / 2);
-                assertEq(postRewards, 0);
-                assertEq(postCredit, 0);
+            assertEq(_collateral.balanceOf(BENEFACTOR_ADDRESS), collateralBalance);
+            assertEq(preCredit, preRewards / 2);
+            assertEq(postRewards, 0);
+            assertEq(postCredit, 0);
 
             vm.stopPrank();
         /* --------------------------------- */
@@ -340,24 +343,24 @@ contract LiquidLotteryTest is Test {
         /* ----------BENEFACTOR--------------- */
             vm.startPrank(BENEFACTOR_ADDRESS);
                 
-                uint256 preDebit = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
-                uint256 preInterest = _lottery.interestDue(BENEFACTOR_ADDRESS, 2);
-                uint256 preDebt = _lottery.debt(BENEFACTOR_ADDRESS, 2);
+            uint256 preDebit = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            uint256 preInterest = _lottery.interestDue(BENEFACTOR_ADDRESS, 2);
+            uint256 preDebt = _lottery.debt(BENEFACTOR_ADDRESS, 2);
 
-                uint256 debit = preInterest + preDebit;
+            uint256 debit = preInterest + preDebit;
 
-                _collateral.approve(address(_lottery), debit);
-                _lottery.repay(debit, 2);
+            _collateral.approve(address(_lottery), debit);
+            _lottery.repay(debit, 2);
 
-                uint256 postDebit = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
-                uint256 postInterest = _lottery.interestDue(BENEFACTOR_ADDRESS, 2);
-                uint256 postDebt = _lottery.debt(BENEFACTOR_ADDRESS, 2);
+            uint256 postDebit = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            uint256 postInterest = _lottery.interestDue(BENEFACTOR_ADDRESS, 2);
+            uint256 postDebt = _lottery.debt(BENEFACTOR_ADDRESS, 2);
 
-                uint256 outstandingDebt = preDebt - preInterest - (preDebit * 2);
+            uint256 outstandingDebt = preDebt - preInterest - (preDebit * 2);
 
-                assertEq(postDebit, 0);
-                assertEq(postInterest, 0);
-                assertEq(postDebt, outstandingDebt);
+            assertEq(postInterest, 0);
+            assertEq(postDebt, outstandingDebt);
+            assertEq(postDebit, 0);
 
             vm.stopPrank();
         /* --------------------------------- */ 
@@ -413,22 +416,22 @@ contract LiquidLotteryTest is Test {
         /* -------------COUNTERPARTY------------ */
             vm.startPrank(COUNTERPARTY_ADDRESS);
 
-                uint256 preBalance = _collateral.balanceOf(COUNTERPARTY_ADDRESS);
-                uint256 preCredit = _lottery.credit(COUNTERPARTY_ADDRESS, 2, BENEFACTOR_ADDRESS);
+            uint256 preBalance = _collateral.balanceOf(COUNTERPARTY_ADDRESS);
+            uint256 preCredit = _lottery.credit(COUNTERPARTY_ADDRESS, 2, BENEFACTOR_ADDRESS);
 
-                _lottery.leverage(BENEFACTOR_ADDRESS, preCredit / 2, 2);
+            _lottery.leverage(BENEFACTOR_ADDRESS, preCredit / 2, 2);
 
-                uint256 postBalance = _collateral.balanceOf(COUNTERPARTY_ADDRESS);
-                uint256 postCredit = _lottery.credit(COUNTERPARTY_ADDRESS, 2, BENEFACTOR_ADDRESS);
-                uint256 postRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
+            uint256 postBalance = _collateral.balanceOf(COUNTERPARTY_ADDRESS);
+            uint256 postCredit = _lottery.credit(COUNTERPARTY_ADDRESS, 2, BENEFACTOR_ADDRESS);
+            uint256 postRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
 
-                uint256 diff = postCredit - preCredit / 2;  // 465
-                uint256 basisPoints = (diff * 10000) / preCredit;  
-                uint256 expectedCredit = preCredit / 2 + ((preCredit * basisPoints) / 10000);
+            uint256 diff = postCredit - preCredit / 2;  // 465
+            uint256 basisPoints = (diff * 10000) / preCredit;  
+            uint256 expectedCredit = preCredit / 2 + ((preCredit * basisPoints) / 10000);
 
-                assertEq(postBalance, 10000 * 10 ** 6 + preCredit / 2);
-                // Percision loss makes post > actual
-                assertGt(postCredit, expectedCredit);
+            assertEq(postBalance, 10000 * 10 ** 6 + preCredit / 2);
+            // Percision loss makes post > actual
+            assertGt(postCredit, expectedCredit);
 
             vm.stopPrank();
         /* --------------------------------- */
