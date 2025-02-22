@@ -28,6 +28,7 @@ contract LiquidLotteryTest is Test {
     address constant WITNET_ORACLE_ADDRESS = 0xC0FFEE98AD1434aCbDB894BbB752e138c1006fAB;
 
     function setUp() public {
+        vm.createSelectFork(vm.envString("ETH_RPC_URL"));
         _lottery = new LiquidLottery(
             AAVE_POOL_PROVIDER,
             WITNET_ORACLE_ADDRESS,
