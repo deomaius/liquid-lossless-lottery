@@ -1,0 +1,17 @@
+# Forge build output directories
+cache/
+out/
+
+# Environment files just in case
+.env
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*.sublime-workspace
+.vscode/
+.idea/
