@@ -1,0 +1,6 @@
+LiquidLotteryTest:testBurn() (gas: 670429)
+LiquidLotteryTest:testDelegation() (gas: 940286)
+LiquidLotteryTest:testLeverage() (gas: 1185743)
+LiquidLotteryTest:testMint() (gas: 469874)
+LiquidLotteryTest:testStakeDrawAndClaim() (gas: 1385282)
+LiquidLotteryTest:testTaxesAndRebates() (gas: 431069)
