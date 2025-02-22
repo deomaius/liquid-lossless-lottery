@@ -113,7 +113,27 @@ contract LiquidLottery is ILiquidLottery {
         _;
     }
 
+// Add these at the end of the LiquidLottery contract
+function getBucket(uint8 index) public view returns (ILiquidLottery.Bucket memory) {
+    return _buckets[index];
+}
 
+function getCreditLiabilities(address account) public view returns (uint256) {
+    return _credit[account].liabilities;
+}
+
+function getCreditNote(address account, uint8 index) public view returns (ILiquidLottery.Note memory) {
+    return _credit[account].notes[index];
+}
+
+function getStake(address account, uint8 index) public view returns (ILiquidLottery.Stake memory) {
+    return _stakes[account][index];
+}
+
+// Optional: If you need delegations later
+function getCreditDelegation(address account, uint8 index) public view returns (ILiquidLottery.Delegate memory) {
+    return _credit[account].delegations[index];
+}
     /*
         * @dev Outstanding debt helper
         * @param account Target address
