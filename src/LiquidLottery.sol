@@ -49,39 +49,39 @@ contract LiquidLottery is ILiquidLottery {
     uint256 public constant PENDING_EPOCH = 2 days + 12 hours;
     uint256 public constant CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
 
-        constructor(
-        address[6] memory addresses, // @param Lottery addresses 
-                                     // @addresses[0] Aave pool provider address
-                                     // @addresses[1] Witnet oracle address
-                                     // @addresses[2] Aave data provider address
-                                     // @addresses[3] Lottery controller address
-                                     // @addresses[4] Lottery collateral token address
-                                     // @addresses[5] Lottery coordinator address
-        string memory name,          // @param Lottery ticket name
-        string memory symbol,        // @param Lottery ticket symbol
-        uint256 ticketBasePrice,     // @param Lottery ticket base conversion rate
-        uint256 ticketBaseTax,       // @param Lottery ticket tax rate
-        uint256 limitingLtv,         // @param Lottery loan-to-value (LTV) multiplier
-        uint256 limitingApy,         // @param Lottery annual per year (APY) rate
-        uint8 bucketSlots            // @param Lottery bucket count
+    constructor(
+        address[6] memory addresses, // @param Lottery addresses
+            // @addresses[0] Aave pool provider address
+            // @addresses[1] Witnet oracle address
+            // @addresses[2] Aave data provider address
+            // @addresses[3] Lottery controller address
+            // @addresses[4] Lottery collateral token address
+            // @addresses[5] Lottery coordinator address
+        string memory name, // @param Lottery ticket name
+        string memory symbol, // @param Lottery ticket symbol
+        uint256 ticketBasePrice, // @param Lottery ticket base conversion rate
+        uint256 ticketBaseTax, // @param Lottery ticket tax rate
+        uint256 limitingLtv, // @param Lottery loan-to-value (LTV) multiplier
+        uint256 limitingApy, // @param Lottery annual per year (APY) rate
+        uint8 bucketSlots // @param Lottery bucket count
     ) {
         require(limitingLtv < 1e18, "Invalid ltv format");
         require(limitingApy < 10000, "Invalid apy bps format");
 
         _slots = bucketSlots;
         _start = block.timestamp;
-        _controller = addresses[3];   // Controller
-        _coordinator = addresses[5];  // Coordinator
+        _controller = addresses[3]; // Controller
+        _coordinator = addresses[5]; // Coordinator
         _reservePrice = ticketBasePrice;
         _limitLtv = limitingLtv;
         _limitApy = limitingApy;
 
-        _collateral = IERC20Base(addresses[4]);  // Collateral token
-        _oracle = IWitnetRandomnessV2(addresses[1]);  // Oracle
-        _pool = IAaveLendingPool(IAavePoolProvider(addresses[0]).getPool());  // Pool provider
+        _collateral = IERC20Base(addresses[4]); // Collateral token
+        _oracle = IWitnetRandomnessV2(addresses[1]); // Oracle
+        _pool = IAaveLendingPool(IAavePoolProvider(addresses[0]).getPool()); // Pool provider
         _ticket = IERC20Base(address(new TaxableERC20(name, symbol, address(this), 0, ticketBaseTax)));
 
-        (address voucher,,) = IAaveDataProvider(addresses[2]).getReserveTokensAddresses(addresses[4]);  // Data provider, collateral
+        (address voucher,,) = IAaveDataProvider(addresses[2]).getReserveTokensAddresses(addresses[4]); // Data provider, collateral
 
         _voucher = IERC20Base(voucher);
         _decimalC = _collateral.decimals();
