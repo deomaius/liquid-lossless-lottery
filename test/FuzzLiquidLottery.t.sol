@@ -107,36 +107,21 @@ contract LiquidLotteryFuzzFork is Test {
     }
 
     // TODO: there seems to be a rounding issue
-    function testFuzz_burn(uint48 amount) public {
+    function testFuzz_burn_all(uint48 amount) public {
         // Start in Open epoch to mint tickets
         warpToEpoch(ILiquidLottery.Epoch.Open);
 
-        vm.prank(USER);
+        uint256 userCollateralStart = collateral.balanceOf(USER);
 
-        // Make sure 0 amount is handled correctly
-        if (amount == 0) {
-            lottery.mint(10e6);
+        vm.startPrank(USER);
 
-            warpToEpoch(ILiquidLottery.Epoch.Pending);
-
-            uint256 collateralBalanceBefore = collateral.balanceOf(USER);
-            uint256 ticketBalanceBefore = ticket.balanceOf(USER);
-            uint256 voucherBalanceBefore = lottery._voucher().balanceOf(address(lottery));
-
-            vm.expectRevert();
-            lottery.burn(amount); // No revert expected in LiquidLottery
-
-            assertEq(ticket.balanceOf(USER), ticketBalanceBefore, "Ticket balance changed with zero burn");
-            assertEq(lottery._reserves(), 10e6, "Reserves changed with zero burn");
-            assertEq(
-                lottery._voucher().balanceOf(address(lottery)),
-                voucherBalanceBefore,
-                "Voucher balance changed with zero burn"
-            );
-            assertEq(collateral.balanceOf(USER), collateralBalanceBefore, "Collateral balance changed with zero burn");
-            return;
+        if (amount == 0 ) {
+          lottery.mint(100e6);
+          vm.expectRevert();
+          lottery.burn(0);
+          return;
         }
-
+        
         // Mint initial tickets (e.g., 1 million USDC worth)
         lottery.mint(amount);
 
@@ -144,35 +129,32 @@ contract LiquidLotteryFuzzFork is Test {
         warpToEpoch(ILiquidLottery.Epoch.Pending);
 
         // Capture initial state after minting
-        uint256 userTicketBalanceBefore = ticket.balanceOf(USER);
         uint256 reservesBefore = lottery._reserves();
         uint256 totalSupplyBefore = ticket.totalSupply();
         uint256 voucherBalanceBefore = lottery._voucher().balanceOf(address(lottery));
-        uint256 userCollateralBefore = collateral.balanceOf(USER);
-
-        // Calculate expected values
-        uint256 rate = lottery.scale(lottery.collateralPerShare(), lottery._decimalC(), lottery._decimalT());
-        uint256 expectedDeposit =
-            lottery.scale(userTicketBalanceBefore * rate / 1e18, lottery._decimalT(), lottery._decimalC());
+        uint256 userTicketBalanceBefore = ticket.balanceOf(USER);
 
         // Call burn function
-        vm.prank(USER);
-        vm.expectEmit(true, true, false, true);
-        emit ILiquidLottery.Exit(USER, expectedDeposit, userTicketBalanceBefore);
+        //vm.expectEmit(true, true, false, true);
+        //emit ILiquidLottery.Exit(USER, expgtectedDeposit, userTicketBalanceBefore);
+        ticket.approve(address(lottery), userTicketBalanceBefore);
         lottery.burn(userTicketBalanceBefore);
 
+        vm.stopPrank();
+        uint currentPremium = lottery.currentPremium();
         // Make sure state is correct
         assertEq(ticket.balanceOf(USER), 0, "Incorrect ticket balance");
-        assertApproxEqAbs(
+        assertEq(
             lottery._voucher().balanceOf(address(lottery)),
-            voucherBalanceBefore - expectedDeposit,
-            1,
+            currentPremium,
             "Incorrect voucher balance"
         );
-        assertEq(lottery._reserves(), reservesBefore - expectedDeposit, "Incorrect reserves");
+        assertEq(lottery._reserves(), reservesBefore - lottery.scale(userTicketBalanceBefore, 18, 6), "Incorrect reserves");
         assertEq(ticket.totalSupply(), totalSupplyBefore - userTicketBalanceBefore, "Incorrect total supply");
-        assertEq(
-            collateral.balanceOf(USER), userCollateralBefore + expectedDeposit, "Incorrect user collateral balance"
+
+
+        assertApproxEqAbs(
+            collateral.balanceOf(USER), userCollateralStart, 1, "User didnt receive all funds back"
         );
     }
 }

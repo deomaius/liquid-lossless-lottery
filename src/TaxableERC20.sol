@@ -1,27 +1,20 @@
 pragma solidity ^0.8.20;
 
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract TaxableERC20 is ERC20 {
-    
     uint256 public _tax;
     uint256 public _rebates;
     address public _controller;
 
-    mapping (address => bool) public _exempt;
+    mapping(address => bool) public _exempt;
 
     event TaxRateUpdated(uint256 rate);
     event TaxExemptionAdded(address subsidiary);
     event TaxRebate(address benefactor, uint256 amount);
 
-    constructor(
-        string memory name, 
-        string memory symbol,
-        address controller,
-        uint256 supply,
-        uint256 rate
-    ) 
-        ERC20(name, symbol) 
+    constructor(string memory name, string memory symbol, address controller, uint256 supply, uint256 rate)
+        ERC20(name, symbol)
     {
         require(_tax < 10000, "Invalid tax bps format");
 
@@ -30,7 +23,7 @@ contract TaxableERC20 is ERC20 {
 
         _exempt[controller] = true;
         _exempt[address(0)] = true;
-        
+
         _mint(msg.sender, supply);
     }
 
@@ -64,17 +57,17 @@ contract TaxableERC20 is ERC20 {
         emit TaxRebate(to, amount);
     }
 
-    function transfer(address to, uint256 amount) virtual override public returns (bool) {
+    function transfer(address to, uint256 amount) public virtual override returns (bool) {
         uint256 tax = tax(msg.sender, to, amount);
 
         if (tax > 0) _deductTax(msg.sender, tax);
 
         super._transfer(msg.sender, to, amount - tax);
 
-        return true; 
+        return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) virtual override public returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
         uint256 tax = tax(from, to, amount);
 
         super._spendAllowance(from, _msgSender(), amount - tax);
@@ -104,7 +97,4 @@ contract TaxableERC20 is ERC20 {
 
         super._burn(from, amount);
     }
-
 }
-
-

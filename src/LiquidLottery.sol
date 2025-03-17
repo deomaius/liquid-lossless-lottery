@@ -402,8 +402,13 @@ contract LiquidLottery is ILiquidLottery {
     function mint(uint256 amount) public onlyCycle(Epoch.Open) syncBlock {
         _collateral.transferFrom(msg.sender, address(this), amount);
         _collateral.approve(address(_pool), amount);
-        // NOTE: aave may round this down by 1 wei
+
+        uint balanceBefore = _voucher.balanceOf(address(this));
+
         _pool.supply(address(_collateral), amount, address(this), 0);
+
+        // aave may have rounded the amount down, so use amount atoken minted to keep in sync
+        amount = (_voucher.balanceOf(address(this)) - balanceBefore);
 
         uint256 collateral = scale(amount, _decimalC, _decimalT);
         uint256 rate = scale(collateralPerShare(), _decimalC, _decimalT);
