@@ -28,21 +28,28 @@ contract LiquidLotteryTest is Test {
 
     function setUp() public {
         vm.createSelectFork(vm.envString("ETH_RPC_URL"));
+
+        // Define the address array in the correct order
+        address[6] memory addresses = [
+            AAVE_POOL_PROVIDER,    // addresses[0]: Aave pool provider
+            WITNET_ORACLE_ADDRESS, // addresses[1]: Witnet oracle
+            AAVE_DATA_PROVIDER,    // addresses[2]: Aave data provider
+            CONTROLLER_ADDRESS,    // addresses[3]: Lottery controller
+            TOKEN_USDC_ADDRESS,    // addresses[4]: Collateral token (USDC)
+            COORDINATOR_ADDRESS    // addresses[5]: Lottery coordinator
+        ];
+
         _lottery = new LiquidLottery(
-            AAVE_POOL_PROVIDER,
-            WITNET_ORACLE_ADDRESS,
-            AAVE_DATA_PROVIDER,
-            CONTROLLER_ADDRESS,
-            TOKEN_USDC_ADDRESS,
-            COORDINATOR_ADDRESS,
+            addresses,
             "Test ticket",
             "TICKET",
-            10 ** 6,
-            500,
-            0.5 ether,
-            1000,
-            4
+            10 ** 6,  // ticketBasePrice
+            500,      // ticketBaseTax
+            0.5 ether, // limitingLtv
+            1000,     // limitingApy
+            4         // bucketSlots
         );
+
         _collateral = IERC20Base(TOKEN_USDC_ADDRESS);
         _ticket = IERC20Base(_lottery._ticket());
 
@@ -61,7 +68,7 @@ contract LiquidLotteryTest is Test {
         /* --------------------------------- */
     }
 
-    function testMint() public {
+       function testMint() public {
         /* -------------BENEFACTOR------------ */
         vm.startPrank(BENEFACTOR_ADDRESS);
 
