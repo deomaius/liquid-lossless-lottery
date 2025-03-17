@@ -22,23 +22,23 @@ contract LiquidLottery is ILiquidLottery {
     uint8 public _decimalV;
     uint8 public _decimalC;
     uint8 public _decimalT;
+    address public _controller;
 
-    uint256 public _start;
+    uint256 immutable public _start;
+    uint256 immutable public _limitLtv;
+    uint256 immutable public _reservePrice;
     uint256 public _opfees;
-    uint256 public _limitLtv;
     uint256 public _limitApy;
     uint256 public _reserves;
-    uint256 public _reservePrice;
     uint256 public _lastBlockSync;
 
-    address public _controller;
-    address public _coordinator;
+    address immutable public _coordinator;
 
-    IERC20Base public _ticket;
-    IERC20Base public _voucher;
-    IERC20Base public _collateral;
-    IAaveLendingPool public _pool;
-    IWitnetRandomnessV2 public _oracle;
+    IERC20Base immutable public _ticket;
+    IERC20Base immutable public _voucher;
+    IERC20Base immutable public _collateral;
+    IAaveLendingPool immutable public _pool;
+    IWitnetRandomnessV2 immutable public _oracle;
 
     mapping(uint8 => Bucket) private _buckets;
     mapping(address => Credit) private _credit;
