@@ -1,13 +1,13 @@
 pragma solidity ^0.8.20;
 
-import { IWitnetRandomnessV2 } from "@interfaces/IWitnetRandomnessV2.sol";
-import { IAavePoolProvider } from "@interfaces/IAavePoolProvider.sol";
-import { IAaveDataProvider } from "@interfaces/IAaveDataProvider.sol";
-import { IAaveLendingPool } from "@interfaces/IAaveLendingPool.sol";
-import { ILiquidLottery } from "@interfaces/ILiquidLottery.sol";
-import { IERC20Base } from "@interfaces/IERC20Base.sol";
+import {IWitnetRandomnessV2} from "@interfaces/IWitnetRandomnessV2.sol";
+import {IAavePoolProvider} from "@interfaces/IAavePoolProvider.sol";
+import {IAaveDataProvider} from "@interfaces/IAaveDataProvider.sol";
+import {IAaveLendingPool} from "@interfaces/IAaveLendingPool.sol";
+import {ILiquidLottery} from "@interfaces/ILiquidLottery.sol";
+import {IERC20Base} from "@interfaces/IERC20Base.sol";
 
-import { TaxableERC20 } from "./TaxableERC20.sol";
+import {TaxableERC20} from "./TaxableERC20.sol";
 
 /*
     * @author deomaius
@@ -16,7 +16,6 @@ import { TaxableERC20 } from "./TaxableERC20.sol";
 */
 
 contract LiquidLottery is ILiquidLottery {
-
     bool public _failsafe;
 
     uint8 public _slots;
@@ -41,29 +40,29 @@ contract LiquidLottery is ILiquidLottery {
     IAaveLendingPool immutable public _pool;
     IWitnetRandomnessV2 immutable public _oracle;
 
-    mapping (uint8 => Bucket) public _buckets;
-    mapping (address => Credit) public _credit;
-    mapping (address => mapping (uint => Stake)) public _stakes;
+    mapping(uint8 => Bucket) private _buckets;
+    mapping(address => Credit) private _credit;
+    mapping(address => mapping(uint256 => Stake)) private _stakes;
 
-    uint256 constant public OPEN_EPOCH = 4 days;
-    uint256 constant public CLOSED_EPOCH = 12 hours;
-    uint256 constant public PENDING_EPOCH = 2 days + 12 hours; 
-    uint256 constant public CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
+    uint256 public constant OPEN_EPOCH = 4 days;
+    uint256 public constant CLOSED_EPOCH = 12 hours;
+    uint256 public constant PENDING_EPOCH = 2 days + 12 hours;
+    uint256 public constant CYCLE = OPEN_EPOCH + PENDING_EPOCH + CLOSED_EPOCH;
 
     constructor(
-        address pool,               // @param Aave pool provider address
-        address oracle,             // @param Witnet oracle address
-        address provider,           // @param Aave data provider address
-        address controller,         // @param Lottery controller address
-        address collateral,         // @param Lottery collateral token address 
-        address coordinator,        // @param Lottery coordinator address
-        string memory name,         // @param Lottery ticket name
-        string memory symbol,       // @param Lottery ticket symbol 
-        uint256 ticketBasePrice,    // @param Lottery ticket base conversion rate
-        uint256 ticketBaseTax,      // @param Lottery ticket tax rate
-        uint256 limitingLtv,        // @param Lottery loan-to-value (LTV) multiplier
-        uint256 limitingApy,        // @param Lottery annual per year (APY) rate
-        uint8 bucketSlots           // @param Lottery bucket count 
+        address pool, // @param Aave pool provider address
+        address oracle, // @param Witnet oracle address
+        address provider, // @param Aave data provider address
+        address controller, // @param Lottery controller address
+        address collateral, // @param Lottery collateral token address
+        address coordinator, // @param Lottery coordinator address
+        string memory name, // @param Lottery ticket name
+        string memory symbol, // @param Lottery ticket symbol
+        uint256 ticketBasePrice, // @param Lottery ticket base conversion rate
+        uint256 ticketBaseTax, // @param Lottery ticket tax rate
+        uint256 limitingLtv, // @param Lottery loan-to-value (LTV) multiplier
+        uint256 limitingApy, // @param Lottery annual per year (APY) rate
+        uint8 bucketSlots // @param Lottery bucket count
     ) {
         require(limitingLtv < 1e18, "Invalid ltv format");
         require(limitingApy < 10000, "Invalid apy bps format");
@@ -91,7 +90,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*    @dev Control statement for configuration        */
     modifier onlyController() {
-        require (msg.sender == _controller, "Invalid controller");
+        require(msg.sender == _controller, "Invalid controller");
         _;
     }
 
@@ -113,12 +112,60 @@ contract LiquidLottery is ILiquidLottery {
         _;
     }
 
+    /**
+     * @dev Retrieves the bucket details for a specific index.
+     * @param index The index of the bucket to retrieve (0-based).
+     * @return ILiquidLottery.Bucket memory The bucket struct containing total deposits and reward checkpoint.
+     */
+    function getBucket(uint8 index) public view returns (ILiquidLottery.Bucket memory) {
+        return _buckets[index];
+    }
+
+    /**
+     * @dev Returns the total credit liabilities for a given account.
+     * @param account The address of the account to query.
+     * @return uint256 The total outstanding liabilities in collateral units (e.g., USDC wei).
+     */
+    function getCreditLiabilities(address account) public view returns (uint256) {
+        return _credit[account].liabilities;
+    }
+
+    /**
+     * @dev Retrieves the credit note details for a specific account and bucket index.
+     * @param account The address of the account holding the credit note.
+     * @param index The index of the bucket associated with the credit note (0-based).
+     * @return ILiquidLottery.Note memory The credit note struct containing debt details.
+     */
+    function getCreditNote(address account, uint8 index) public view returns (ILiquidLottery.Note memory) {
+        return _credit[account].notes[index];
+    }
+
+    /**
+     * @dev Retrieves the stake details for a specific account and bucket index.
+     * @param account The address of the account holding the stake.
+     * @param index The index of the bucket where the stake resides (0-based).
+     * @return ILiquidLottery.Stake memory The stake struct containing deposit and outstanding amounts.
+     */
+    function getStake(address account, uint8 index) public view returns (ILiquidLottery.Stake memory) {
+        return _stakes[account][index];
+    }
+
+    /**
+     * @dev Retrieves the credit delegation details for a specific account and bucket index.
+     * @param account The address of the account that delegated credit.
+     * @param index The index of the bucket associated with the delegation (0-based).
+     * @return ILiquidLottery.Delegate memory The delegation struct containing delegated address and amount.
+     */
+    function getCreditDelegation(address account, uint8 index) public view returns (ILiquidLottery.Delegate memory) {
+        return _credit[account].delegations[index];
+    }
 
     /*
         * @dev Outstanding debt helper
         * @param account Target address
         * @return Collateral denominated debt
     */
+
     function debt(address account, uint8 index) public view returns (uint256) {
         uint256 premium = interestDue(account, index);
         uint256 principal = _credit[account].notes[index].debt;
@@ -139,7 +186,7 @@ contract LiquidLottery is ILiquidLottery {
         if (account != delegator && delegatedTo(delegator, index) == account) {
             base += rewards(delegator, index);
         }
-    
+
         return base * _limitLtv / 1e18;
     }
 
@@ -188,7 +235,6 @@ contract LiquidLottery is ILiquidLottery {
         return delegation.delegate;
     }
 
-
     /*
         * @dev Ticket collateral value helper
         * @return Collateral per unit ticket
@@ -198,10 +244,10 @@ contract LiquidLottery is ILiquidLottery {
         uint256 reserves = scale(_reserves, _decimalC, _decimalT);
 
         if (supply == 0) return _reservePrice;
-        
+
         uint256 rate = (reserves * 1e18) / supply;
 
-        return scale(rate, _decimalT, _decimalC); 
+        return scale(rate, _decimalT, _decimalC);
     }
 
     /*
@@ -214,7 +260,7 @@ contract LiquidLottery is ILiquidLottery {
 
         if (interest > _reserves) return interest - _reserves;
 
-        return  0;
+        return 0;
     }
 
     /*
@@ -229,7 +275,7 @@ contract LiquidLottery is ILiquidLottery {
             return Epoch.Open;
         } else if (timeInCycle < OPEN_EPOCH + PENDING_EPOCH) {
             return Epoch.Pending;
-        } else  {
+        } else {
             return Epoch.Closed;
         }
     }
@@ -244,17 +290,17 @@ contract LiquidLottery is ILiquidLottery {
     function timeToRepay(address from, uint8 index, uint256 amount) public view returns (uint256) {
         Bucket storage bucket = _buckets[index];
         Stake storage vault = _stakes[from][index];
-    
+
         uint256 alloc = (vault.deposit * 1e18) / bucket.totalDeposits;
         uint256 cycle = (_reserves * _limitApy * CYCLE) / (365 days * 10000);
         uint256 position = cycle * alloc / 1e18;
-    
+
         uint256 premiumPerSlot = currentPremium() / _slots;
-        uint256 avgPremium = premiumPerSlot * alloc / 1e18;   
+        uint256 avgPremium = premiumPerSlot * alloc / 1e18;
         uint256 totalPerCycle = avgPremium + position;
-    
+
         if (totalPerCycle == 0) return type(uint256).max;
-    
+
         return (amount * CYCLE) / totalPerCycle;
     }
 
@@ -264,7 +310,7 @@ contract LiquidLottery is ILiquidLottery {
     */
     function isOracleReady() public view returns (bool) {
         if (!_failsafe) {
-            return _lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync);                                                              
+            return _lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync);
         }
 
         return true;
@@ -274,14 +320,14 @@ contract LiquidLottery is ILiquidLottery {
     function sync() public payable onlyCycle(Epoch.Closed) {
         require(_lastBlockSync == 0, "Already synced");
 
-        _oracle.randomize{ value: msg.value }(); 
+        _oracle.randomize{value: msg.value}();
         _lastBlockSync = block.number;
 
         emit Sync(block.number, 0);
     }
 
     /*   @dev Oracle reveal operation                              */
-    function draw() public onlyCycle(Epoch.Closed) { 
+    function draw() public onlyCycle(Epoch.Closed) {
         require(isOracleReady(), "Oracle not ready");
 
         bytes32 entropy;
@@ -298,15 +344,15 @@ contract LiquidLottery is ILiquidLottery {
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
-        uint256 ticketShare = (premium * 2000) / 10000;   // 20%
+        uint256 ticketShare = (premium * 2000) / 10000; // 20%
         uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
 
         if (_failsafe) {
             ticketShare += prizeShare;
-            prizeShare = 0; 
+            prizeShare = 0;
         } else {
             Bucket storage bucket = _buckets[bucketId];
-            
+
             uint256 prize = scale(prizeShare, _decimalC, _decimalT);
             uint256 rate = prize * 1e18 / bucket.totalDeposits;
 
@@ -320,19 +366,19 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
-    function draw(bytes32 result) public onlyCycle(Epoch.Closed) {  
+    function draw(bytes32 result) public onlyCycle(Epoch.Closed) {
         uint8 index = uint8(uint256(result) % _slots);
 
         uint8 bucketId = index > _slots ? _slots : index;
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
-        uint256 ticketShare = (premium * 2000) / 10000;   // 20%
+        uint256 ticketShare = (premium * 2000) / 10000; // 20%
         uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
 
         if (_failsafe) {
             ticketShare += prizeShare;
-            prizeShare = 0; 
+            prizeShare = 0;
         } else {
             Bucket storage bucket = _buckets[bucketId];
 
@@ -355,8 +401,14 @@ contract LiquidLottery is ILiquidLottery {
     */
     function mint(uint256 amount) public onlyCycle(Epoch.Open) syncBlock {
         _collateral.transferFrom(msg.sender, address(this), amount);
-        _collateral.approve(address(_pool), amount);      
+        _collateral.approve(address(_pool), amount);
+
+        uint balanceBefore = _voucher.balanceOf(address(this));
+
         _pool.supply(address(_collateral), amount, address(this), 0);
+
+        // aave may have rounded the amount down, so use amount atoken minted to keep in sync
+        amount = (_voucher.balanceOf(address(this)) - balanceBefore);
 
         uint256 collateral = scale(amount, _decimalC, _decimalT);
         uint256 rate = scale(collateralPerShare(), _decimalC, _decimalT);
@@ -398,15 +450,15 @@ contract LiquidLottery is ILiquidLottery {
         uint256 withdrawal = scale(amount, _decimalC, _decimalT);
 
         require(vault.deposit > 0, "Insufficient stake");
-        require(debt(msg.sender, index) == 0, "Active debt");  
-        require(rewards >= amount && rewards > 0, "Insufficient rewards");     
+        require(debt(msg.sender, index) == 0, "Active debt");
+        require(rewards >= amount && rewards > 0, "Insufficient rewards");
         require(delegatedTo(msg.sender, index) == msg.sender, "Active delegation");
 
         _moveCheckpoint(vault, index, withdrawal, rewards);
 
         uint256 share = _pool.withdraw(address(_collateral), amount, address(this));
 
-        _collateral.transfer(msg.sender, share); 
+        _collateral.transfer(msg.sender, share);
 
         emit Claim(msg.sender, index, amount);
     }
@@ -436,9 +488,9 @@ contract LiquidLottery is ILiquidLottery {
         _reserves += position;
 
         uint256 tickets = position * 1e18 / collateralPerShare();
-  
+
         note.debt += amount;
-        note.principal += amount; 
+        note.principal += amount;
         note.collateral += tickets;
         note.timestamp = block.timestamp;
         quota.liabilities += amount;
@@ -447,7 +499,7 @@ contract LiquidLottery is ILiquidLottery {
 
         _moveCheckpoint(vault, index, collateral, earned);
         _pool.withdraw(address(_collateral), amount, msg.sender);
-        _ticket.mint(address(this), tickets);  
+        _ticket.mint(address(this), tickets);
 
         emit Leverage(from, msg.sender, collateral, amount);
     }
@@ -479,13 +531,13 @@ contract LiquidLottery is ILiquidLottery {
 
         if (note.debt == 0) {
             vault.outstanding -= note.collateral;
-          
+
             delete note.collateral;
             delete note.timestamp;
-        } 
+        }
 
         emit Repayment(msg.sender, index, recoup);
-    } 
+    }
 
     /*
         * @dev Internal interest repayment handler
@@ -496,16 +548,13 @@ contract LiquidLottery is ILiquidLottery {
         * @param vault Stake position vault
         * @return Excess repayment for principal
     */
-    function selfRepayment(
-        uint256 interest,
-        uint256 premium,
-        uint256 amount,
-        Note storage note,
-        Stake storage vault 
-    ) internal returns (uint256) {
+    function selfRepayment(uint256 interest, uint256 premium, uint256 amount, Note storage note, Stake storage vault)
+        internal
+        returns (uint256)
+    {
         interest += note.interest;
         uint256 recoup = amount + premium;
-    
+
         if (recoup > 0) {
             if (recoup >= interest) {
                 note.interest = 0;
@@ -519,7 +568,7 @@ contract LiquidLottery is ILiquidLottery {
 
             return 0;
         }
-    
+
         note.interest = interest;
 
         return 0;
@@ -533,12 +582,12 @@ contract LiquidLottery is ILiquidLottery {
     */
     function delegate(address to, uint8 index, uint256 duration) public {
         Delegate storage delegation = _credit[msg.sender].delegations[index];
-        
+
         require(delegation.expiry < block.timestamp, "Active delegation");
 
         delegation.delegate = to;
         delegation.expiry = block.timestamp + duration;
-      
+
         emit Delegation(msg.sender, to, delegation.expiry);
     }
 
@@ -591,7 +640,7 @@ contract LiquidLottery is ILiquidLottery {
     /*   @dev Coordinator fee distribution                              */
     function funnel(uint256 amount) public {
         require(_opfees > amount, "Not enough fees to funnel");
-        
+
         uint256 fees = _pool.withdraw(address(_collateral), amount, address(this));
 
         _opfees -= amount;
@@ -625,7 +674,7 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Configure controller
         * @param controller Target address inheritence  
     */
-     function setController(address controller) public onlyController {
+    function setController(address controller) public onlyController {
         _controller = controller;
 
         emit Configure(controller);
@@ -658,11 +707,11 @@ contract LiquidLottery is ILiquidLottery {
     */
     function scale(uint256 amount, uint8 d1, uint8 d2) public view returns (uint256) {
         if (d1 < d2) {
-          return amount * (10 ** uint256(d2 - d1));
+            return amount * (10 ** uint256(d2 - d1));
         } else if (d1 > d2) {
-          uint256 f = 10 ** uint256(d1 - d2);
+            uint256 f = 10 ** uint256(d1 - d2);
 
-          return amount / f;
+            return amount / f;
         }
         return amount;
     }
@@ -674,20 +723,14 @@ contract LiquidLottery is ILiquidLottery {
         * @param amount Reward value amount scaled 
         * @param rewards Rewards value unscaled
     */
-    function _moveCheckpoint(
-        Stake storage vault,
-        uint8 index,
-        uint256 amount,
-        uint256 rewards
-    ) internal {
+    function _moveCheckpoint(Stake storage vault, uint8 index, uint256 amount, uint256 rewards) internal {
         Bucket storage bucket = _buckets[index];
 
         rewards = scale(rewards, _decimalC, _decimalT);
 
-        uint256 deltaRate = bucket.rewardCheckpoint - vault.checkpoint; 
+        uint256 deltaRate = bucket.rewardCheckpoint - vault.checkpoint;
         uint256 proportion = amount * 1e18 / rewards;
 
         vault.checkpoint += deltaRate * proportion / 1e18;
     }
-
 }
