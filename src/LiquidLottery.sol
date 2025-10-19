@@ -332,7 +332,7 @@ contract LiquidLottery is ILiquidLottery {
         _reserves += ticketShare;
         _lastBlockSync = 0;
 
-        emit Roll(block.number, entropy, bucketId, prizeShare);
+        emit Roll(block.number, result, bucketId, prizeShare);
     }
 
     /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
