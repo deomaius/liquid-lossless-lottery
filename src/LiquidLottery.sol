@@ -53,7 +53,7 @@ contract LiquidLottery is ILiquidLottery {
     uint16 public constant REQUEST_CONFIRMATIONS = 3;
     uint32 public constant CALLBACK_GAS_LIMIT = 200000;
     uint32 public constant NUM_WORDS = 1;
-    uint256 public constant VRF_TIMEOUT = 1 hours;
+    uint256 public constant VRF_TIMEOUT = 6 hours;
 
     uint256 public constant OPEN_EPOCH = 4 days;
     uint256 public constant CLOSED_EPOCH = 12 hours;
