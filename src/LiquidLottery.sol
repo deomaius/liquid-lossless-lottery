@@ -303,7 +303,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*   @dev Oracle reveal operation                              */
     function draw(uint256 index, bytes32 result) public onlyCycle(Epoch.Closed) {
-        bool shouldFallback = (now - _lastBlockSync) > VRF_TIMEOUT || _failsafe;
+        bool didTimeout = (block.timestamp - _lastBlockSync) > VRF_TIMEOUT; 
+        bool shouldFallback = didTimeout || _failsafe;
 
         require(_lastReqId === 0 || shouldFallback, "Request has not been synced");
 
@@ -336,9 +337,10 @@ contract LiquidLottery is ILiquidLottery {
 
     /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
     function draw(uint8 index, bytes32 result) public onlyCycle(Epoch.Closed) {
-        bool shouldFallback = (now - _lastBlockSync) > VRF_TIMEOUT || _failsafe;
+        bool didTimeout = (block.timestamp - _lastBlockSync) > VRF_TIMEOUT; 
+        bool shouldFallback = didTimeout || _failsafe;
 
-        require(_lastReqId === 0 || shouldFallback, "Request has not been synced");
+        require(_lastReqId === 0 || shouldFallback , "Request has not been synced");
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
