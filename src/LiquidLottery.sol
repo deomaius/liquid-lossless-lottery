@@ -1,6 +1,6 @@
 pragma solidity ^0.8.20;
 
-import {IWitnetRandomnessV2} from "@interfaces/IWitnetRandomnessV2.sol";
+import {IVRFCoordinatorV2} from "@interfaces/IVRFConsumerBaseV2.sol";
 import {IAavePoolProvider} from "@interfaces/IAavePoolProvider.sol";
 import {IAaveDataProvider} from "@interfaces/IAaveDataProvider.sol";
 import {IAaveLendingPool} from "@interfaces/IAaveLendingPool.sol";
@@ -30,6 +30,7 @@ contract LiquidLottery is ILiquidLottery {
     uint256 public _opfees;
     uint256 public _limitApy;
     uint256 public _reserves;
+    uint256 public _lastReqId;
     uint256 public _lastBlockSync;
 
     address public immutable _coordinator;
@@ -38,11 +39,21 @@ contract LiquidLottery is ILiquidLottery {
     IERC20Base public immutable _voucher;
     IERC20Base public immutable _collateral;
     IAaveLendingPool public immutable _pool;
-    IWitnetRandomnessV2 public immutable _oracle;
+    IVRFCoordinatorV2 public immutable _oracle;
 
     mapping(uint8 => Bucket) public _buckets;
     mapping(address => Credit) public _credit;
+    mapping(uint256 => bool) public _requests;
     mapping(address => mapping(uint256 => Stake)) public _stakes;
+
+    // Chainlink VRF V2 parameters
+    bytes32 public immutable _keyHash;
+    uint64 public immutable _subscriptionId;
+
+    uint16 public constant REQUEST_CONFIRMATIONS = 3;
+    uint32 public constant CALLBACK_GAS_LIMIT = 200000;
+    uint32 public constant NUM_WORDS = 1;
+    uint256 public constant VRF_TIMEOUT = 1 hours;
 
     uint256 public constant OPEN_EPOCH = 4 days;
     uint256 public constant CLOSED_EPOCH = 12 hours;
@@ -52,7 +63,7 @@ contract LiquidLottery is ILiquidLottery {
     constructor(
         address[6] memory addresses, // @param Lottery addresses
             // @addresses[0] Aave pool provider address
-            // @addresses[1] Witnet oracle address
+            // @addresses[1] Chainlink VRF oracle address
             // @addresses[2] Aave data provider address
             // @addresses[3] Lottery controller address
             // @addresses[4] Lottery collateral token address
@@ -63,7 +74,9 @@ contract LiquidLottery is ILiquidLottery {
         uint256 ticketBaseTax, // @param Lottery ticket tax rate
         uint256 limitingLtv, // @param Lottery loan-to-value (LTV) multiplier
         uint256 limitingApy, // @param Lottery annual per year (APY) rate
-        uint8 bucketSlots // @param Lottery bucket count
+        uint8 bucketSlots, // @param Lottery bucket count
+        bytes32 keyHash, // @param Chainlink VRF key hash
+        uint64 subscriptionId // @param Chainlink VRF subscription ID
     ) {
         require(limitingLtv < 1e18, "Invalid ltv format");
         require(limitingApy < 10000, "Invalid apy bps format");
@@ -75,9 +88,11 @@ contract LiquidLottery is ILiquidLottery {
         _reservePrice = ticketBasePrice;
         _limitLtv = limitingLtv;
         _limitApy = limitingApy;
+        _keyHash = keyHash;
+        _subscriptionId = subscriptionId;
 
         _collateral = IERC20Base(addresses[4]); // Collateral token
-        _oracle = IWitnetRandomnessV2(addresses[1]); // Oracle
+        _oracle = IVRFCoordinatorV2(addresses[1]); // VRF coordinator 
         _pool = IAaveLendingPool(IAavePoolProvider(addresses[0]).getPool()); // Pool provider
         _ticket = IERC20Base(address(new TaxableERC20(name, symbol, address(this), 0, ticketBaseTax)));
 
@@ -268,40 +283,41 @@ contract LiquidLottery is ILiquidLottery {
         return true;
     }
 
-    /*   @dev Oracle state sync                                    */
-    function sync() public payable onlyCycle(Epoch.Closed) {
-        require(_lastBlockSync == 0, "Already synced");
+   /*   @dev Request randomness from Chainlink VRF                    */
+    function sync() public onlyCycle(Epoch.Closed) {
+        require(_lastRequestId == 0, "Already synced");
 
-        _oracle.randomize{value: msg.value}();
-        _lastBlockSync = block.number;
+        uint256 requestId = _vrfCoordinator.requestRandomWords(
+            _keyHash,
+            _subscriptionId,
+            REQUEST_CONFIRMATIONS,
+            CALLBACK_GAS_LIMIT,
+            NUM_WORDS
+        );
 
-        emit Sync(block.number, 0);
+        _lastReqId = requestId;
+        _lastBlockSync = block.timestamp;
+
+        emit Sync(block.number, requestId);
     }
 
     /*   @dev Oracle reveal operation                              */
-    function draw() public onlyCycle(Epoch.Closed) {
-        require(isOracleReady(), "Oracle not ready");
+    function draw(uint256 index, bytes32 result) public onlyCycle(Epoch.Closed) {
+        bool shouldFallback = (now - _lastBlockSync) > VRF_TIMEOUT || _failsafe;
 
-        bytes32 entropy;
-        uint8 bucketId;
-
-        try _oracle.fetchRandomnessAfter(_lastBlockSync) returns (bytes32 result) {
-            uint8 index = uint8(uint256(result) % _slots);
-
-            bucketId = index > _slots ? _slots : index;
-            entropy = result;
-        } catch {
-            _failsafe = true;
-        }
+        require(_lastReqId === 0 || shouldFallback, "Request has not been synced");
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
         uint256 ticketShare = (premium * 2000) / 10000; // 20%
         uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
+        uint8 bucketId  = index > _slots ? _slots : index;
 
-        if (_failsafe) {
+        if (shouldFallback) {
             ticketShare += prizeShare;
             prizeShare = 0;
+
+            _lastReqId = 0;
         } else {
             Bucket storage bucket = _buckets[bucketId];
 
@@ -313,24 +329,29 @@ contract LiquidLottery is ILiquidLottery {
 
         _opfees += coordinatorShare;
         _reserves += ticketShare;
+        _lastBlockSync = 0;
 
         emit Roll(block.number, entropy, bucketId, prizeShare);
     }
 
     /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
-    function draw(bytes32 result) public onlyCycle(Epoch.Closed) {
-        uint8 index = uint8(uint256(result) % _slots);
+    function draw(uint8 index, bytes32 result) public onlyCycle(Epoch.Closed) {
+        bool shouldFallback = (now - _lastBlockSync) > VRF_TIMEOUT || _failsafe;
 
-        uint8 bucketId = index > _slots ? _slots : index;
+        require(_lastReqId === 0 || shouldFallback, "Request has not been synced");
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
         uint256 ticketShare = (premium * 2000) / 10000; // 20%
         uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
 
-        if (_failsafe) {
+        uint8 bucketId = index > _slots ? _slots : index;
+
+        if (shouldFallback) {
             ticketShare += prizeShare;
-            prizeShare = 0;
+            prizeShare = 0; 
+
+            _lastReqId = 0;
         } else {
             Bucket storage bucket = _buckets[bucketId];
 
@@ -342,6 +363,7 @@ contract LiquidLottery is ILiquidLottery {
 
         _opfees += coordinatorShare;
         _reserves += ticketShare;
+        _lastBlockSync = 0;
 
         emit Roll(block.number, result, bucketId, prizeShare);
     }
@@ -644,22 +666,17 @@ contract LiquidLottery is ILiquidLottery {
         emit Failsafe(toggle);
     }
 
-    /*
-        * @dev Token decimal rounded interpolation
-        * @param amount Target conversion value
-        * @param d1 Token 'from' decimals
-        * @param d2 Token 'to' decimals
-        * @return Token 'to' denominated value
-    */
-    function scale(uint256 amount, uint8 d1, uint8 d2) public view returns (uint256) {
-        if (d1 < d2) {
-            return amount * (10 ** uint256(d2 - d1));
-        } else if (d1 > d2) {
-            uint256 f = 10 ** uint256(d1 - d2);
+    function rawFulfillRandomWords(uint256 requestId, uint256[] memory randomWords) external {
+        require(msg.sender == address(_vrfCoordinator), "Only VRF Coordinator can fulfill");
+        require(requestId == _lastRequestId, "Invalid request ID");
+        require(!_requests[requestId], "Request already fulfilled");
 
-            return amount / f;
-        }
-        return amount;
+        uint8 bucketId = uint8(randomWords[0] % _slots);
+
+        _requests[requestId] = true;
+        _lastReqId = 0;
+
+        draw(bucketId, bytes32(randomWords[0]));
     }
 
     /*
@@ -679,4 +696,23 @@ contract LiquidLottery is ILiquidLottery {
 
         vault.checkpoint += deltaRate * proportion / 1e18;
     }
+
+    /*
+        * @dev Token decimal rounded interpolation
+        * @param amount Target conversion value
+        * @param d1 Token 'from' decimals
+        * @param d2 Token 'to' decimals
+        * @return Token 'to' denominated value
+    */
+    function scale(uint256 amount, uint8 d1, uint8 d2) public view returns (uint256) {
+        if (d1 < d2) {
+            return amount * (10 ** uint256(d2 - d1));
+        } else if (d1 > d2) {
+            uint256 f = 10 ** uint256(d1 - d2);
+
+            return amount / f;
+        }
+        return amount;
+    }
+
 }
