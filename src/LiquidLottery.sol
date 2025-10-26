@@ -1,6 +1,6 @@
 pragma solidity ^0.8.20;
 
-import {IVRFCoordinatorV2} from "@interfaces/IVRFConsumerBaseV2.sol";
+import {IVRFCoordinatorV2} from "@interfaces/IVRFCoordinatorV2.sol";
 import {IAavePoolProvider} from "@interfaces/IAavePoolProvider.sol";
 import {IAaveDataProvider} from "@interfaces/IAaveDataProvider.sol";
 import {IAaveLendingPool} from "@interfaces/IAaveLendingPool.sol";
@@ -124,7 +124,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*    @dev Oracle state sync                          */
     modifier syncBlock() {
-        if (_lastBlockSync != 0) delete _lastBlockSync;
+        delete _lastBlockSync;
+        delete _lastReqId;
         _;
     }
 
@@ -276,18 +277,18 @@ contract LiquidLottery is ILiquidLottery {
         * @return Oracle state
     */
     function isOracleReady() public view returns (bool) {
-        if (!_failsafe) {
-            return _lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync);
-        }
+        uint256 timeSyncElapsed = block.timestamp - _lastBlockSync;
+        bool didTimeout = timeSyncElapsed  > VRF_TIMEOUT;
 
-        return true;
+        return _lastReqId == 0 || didTimeout;
     }
 
    /*   @dev Request randomness from Chainlink VRF                    */
     function sync() public onlyCycle(Epoch.Closed) {
-        require(_lastRequestId == 0, "Already synced");
+        require(_lastReqId == 0, "Already synced");
+        require(_lastBlockSync == 0, "Already synced");
 
-        uint256 requestId = _vrfCoordinator.requestRandomWords(
+        uint256 requestId = _oracle.requestRandomWords(
             _keyHash,
             _subscriptionId,
             REQUEST_CONFIRMATIONS,
@@ -302,11 +303,11 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     /*   @dev Oracle reveal operation                              */
-    function draw(uint256 index, bytes32 result) public onlyCycle(Epoch.Closed) {
-        bool didTimeout = (block.timestamp - _lastBlockSync) > VRF_TIMEOUT; 
-        bool shouldFallback = didTimeout || _failsafe;
+    function draw(uint8 index, bytes32 result) public onlyCycle(Epoch.Closed) {
+        bool canDrawByFallback = isOracleReady();
+        bool shouldFallback = canDrawByFallback || _failsafe;
 
-        require(_lastReqId === 0 || shouldFallback, "Request has not been synced");
+        require(shouldFallback, "Request has not been synced"); 
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
@@ -330,24 +331,23 @@ contract LiquidLottery is ILiquidLottery {
 
         _opfees += coordinatorShare;
         _reserves += ticketShare;
-        _lastBlockSync = 0;
 
         emit Roll(block.number, result, bucketId, prizeShare);
     }
 
     /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
-    function draw(uint8 index, bytes32 result) public onlyCycle(Epoch.Closed) {
-        bool didTimeout = (block.timestamp - _lastBlockSync) > VRF_TIMEOUT; 
-        bool shouldFallback = didTimeout || _failsafe;
+    function draw(uint256 index, bytes32 result) public onlyCycle(Epoch.Closed) {
+        bool canDrawByFallback = isOracleReady();
+        bool shouldFallback = canDrawByFallback || _failsafe;
 
-        require(_lastReqId === 0 || shouldFallback , "Request has not been synced");
+        require(shouldFallback, "Request has not been synced");
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
         uint256 ticketShare = (premium * 2000) / 10000; // 20%
         uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
 
-        uint8 bucketId = index > _slots ? _slots : index;
+        uint8 bucketId = index > _slots ? _slots : uint8(index);
 
         if (shouldFallback) {
             ticketShare += prizeShare;
@@ -365,7 +365,6 @@ contract LiquidLottery is ILiquidLottery {
 
         _opfees += coordinatorShare;
         _reserves += ticketShare;
-        _lastBlockSync = 0;
 
         emit Roll(block.number, result, bucketId, prizeShare);
     }
@@ -669,8 +668,8 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     function rawFulfillRandomWords(uint256 requestId, uint256[] memory randomWords) external {
-        require(msg.sender == address(_vrfCoordinator), "Only VRF Coordinator can fulfill");
-        require(requestId == _lastRequestId, "Invalid request ID");
+        require(msg.sender == address(_oracle), "Only VRF Coordinator can fulfill");
+        require(requestId == _lastReqId, "Invalid request ID");
         require(!_requests[requestId], "Request already fulfilled");
 
         uint8 bucketId = uint8(randomWords[0] % _slots);
