@@ -276,11 +276,11 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Oracle state helper
         * @return Oracle state
     */
-    function isOracleReady() public view returns (bool) {
-        uint256 timeSyncElapsed = block.timestamp - _lastBlockSync;
-        bool didTimeout = timeSyncElapsed  > VRF_TIMEOUT;
+      function oracleStatus() public view returns (bool success, bool timedOut) {
+        uint256 timeElapsed = block.timestamp - _lastBlockSync;
 
-        return _lastReqId == 0 || didTimeout;
+        success = _lastReqId == 0 && _lastBlockSync != 0;
+        timedOut = _lastReqId != 0 && timeElapsed > VRF_TIMEOUT;
     }
 
    /*   @dev Request randomness from Chainlink VRF                    */
@@ -304,10 +304,10 @@ contract LiquidLottery is ILiquidLottery {
 
     /*   @dev Oracle reveal operation                              */
     function draw(uint8 index, bytes32 result) public onlyCycle(Epoch.Closed) {
-        bool canDrawByFallback = isOracleReady();
-        bool shouldFallback = canDrawByFallback || _failsafe;
+        (bool success, bool timedOut) = oracleStatus();
+        bool shouldFallback = timedOut || _failsafe;
 
-        require(shouldFallback, "Request has not been synced"); 
+        require(success || shouldFallback, "Request has not been synced"); 
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
@@ -337,10 +337,10 @@ contract LiquidLottery is ILiquidLottery {
 
     /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
     function draw(uint256 index, bytes32 result) public onlyCycle(Epoch.Closed) {
-        bool canDrawByFallback = isOracleReady();
-        bool shouldFallback = canDrawByFallback || _failsafe;
+        (bool success, bool timedOut) = oracleStatus();
+        bool shouldFallback = timedOut || _failsafe;
 
-        require(shouldFallback, "Request has not been synced");
+        require(success || shouldFallback, "Request has not been synced"); 
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
