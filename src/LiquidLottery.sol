@@ -1,6 +1,6 @@
 pragma solidity ^0.8.20;
 
-import {IWitnetRandomnessV2} from "@interfaces/IWitnetRandomnessV2.sol";
+import {IVRFCoordinatorV2} from "@interfaces/IVRFCoordinatorV2.sol";
 import {IAavePoolProvider} from "@interfaces/IAavePoolProvider.sol";
 import {IAaveDataProvider} from "@interfaces/IAaveDataProvider.sol";
 import {IAaveLendingPool} from "@interfaces/IAaveLendingPool.sol";
@@ -24,13 +24,14 @@ contract LiquidLottery is ILiquidLottery {
     uint8 public _decimalT;
     address public _controller;
 
-    uint256 public immutable _start;
-    uint256 public immutable _limitLtv;
-    uint256 public immutable _reservePrice;
     uint256 public _opfees;
     uint256 public _limitApy;
     uint256 public _reserves;
+    uint256 public _lastReqId;
     uint256 public _lastBlockSync;
+    uint256 public immutable _start;
+    uint256 public immutable _limitLtv;
+    uint256 public immutable _reservePrice;
 
     address public immutable _coordinator;
 
@@ -38,11 +39,21 @@ contract LiquidLottery is ILiquidLottery {
     IERC20Base public immutable _voucher;
     IERC20Base public immutable _collateral;
     IAaveLendingPool public immutable _pool;
-    IWitnetRandomnessV2 public immutable _oracle;
+    IVRFCoordinatorV2 public immutable _oracle;
+
+    // Chainlink VRF V2 parameters
+    bytes32 public immutable _keyHash;
+    uint64 public immutable _subscriptionId;
 
     mapping(uint8 => Bucket) public _buckets;
     mapping(address => Credit) public _credit;
+    mapping(uint256 => bool) public _requests;
     mapping(address => mapping(uint256 => Stake)) public _stakes;
+
+    uint16 public constant REQUEST_CONFIRMATIONS = 3;
+    uint32 public constant CALLBACK_GAS_LIMIT = 200000;
+    uint32 public constant NUM_WORDS = 1;
+    uint256 public constant VRF_TIMEOUT = 6 hours;
 
     uint256 public constant OPEN_EPOCH = 4 days;
     uint256 public constant CLOSED_EPOCH = 12 hours;
@@ -52,7 +63,7 @@ contract LiquidLottery is ILiquidLottery {
     constructor(
         address[6] memory addresses, // @param Lottery addresses
             // @addresses[0] Aave pool provider address
-            // @addresses[1] Witnet oracle address
+            // @addresses[1] Chainlink VRF oracle address
             // @addresses[2] Aave data provider address
             // @addresses[3] Lottery controller address
             // @addresses[4] Lottery collateral token address
@@ -63,7 +74,9 @@ contract LiquidLottery is ILiquidLottery {
         uint256 ticketBaseTax, // @param Lottery ticket tax rate
         uint256 limitingLtv, // @param Lottery loan-to-value (LTV) multiplier
         uint256 limitingApy, // @param Lottery annual per year (APY) rate
-        uint8 bucketSlots // @param Lottery bucket count
+        uint8 bucketSlots, // @param Lottery bucket count
+        bytes32 keyHash, // @param Chainlink VRF key hash
+        uint64 subscriptionId // @param Chainlink VRF subscription ID
     ) {
         require(limitingLtv < 1e18, "Invalid ltv format");
         require(limitingApy < 10000, "Invalid apy bps format");
@@ -75,9 +88,11 @@ contract LiquidLottery is ILiquidLottery {
         _reservePrice = ticketBasePrice;
         _limitLtv = limitingLtv;
         _limitApy = limitingApy;
+        _keyHash = keyHash;
+        _subscriptionId = subscriptionId;
 
         _collateral = IERC20Base(addresses[4]); // Collateral token
-        _oracle = IWitnetRandomnessV2(addresses[1]); // Oracle
+        _oracle = IVRFCoordinatorV2(addresses[1]); // VRF coordinator 
         _pool = IAaveLendingPool(IAavePoolProvider(addresses[0]).getPool()); // Pool provider
         _ticket = IERC20Base(address(new TaxableERC20(name, symbol, address(this), 0, ticketBaseTax)));
 
@@ -95,7 +110,7 @@ contract LiquidLottery is ILiquidLottery {
         _;
     }
 
-    /*    @dev Control statement for a epoch pnase        */
+    /*    @dev Control statement for an epoch pnase        */
     modifier onlyCycle(Epoch e) {
         require(currentEpoch() == e, "Invalid epoch");
         _;
@@ -109,13 +124,14 @@ contract LiquidLottery is ILiquidLottery {
 
     /*    @dev Oracle state sync                          */
     modifier syncBlock() {
-        if (_lastBlockSync != 0) delete _lastBlockSync;
+        delete _lastBlockSync;
+        delete _lastReqId;
         _;
     }
 
     /*
         * @dev Outstanding debt helper
-        * @param account Target address
+        * @param account - Target address
         * @return Collateral denominated debt
     */
     function debt(address account, uint8 index) public view returns (uint256) {
@@ -127,9 +143,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Active credit helper
-        * @param account Target address
-        * @param index Bucket index value
-        * @param index Delegator address
+        * @param account - Target address
+        * @param index - Bucket index value
+        * @param index - Delegator address
         * @return Collateral denominated credit
     */
     function credit(address account, uint8 index, address delegator) public view returns (uint256) {
@@ -144,8 +160,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Unclaimed rewards helper
-        * @param account Target address
-        * @param index Bucket index value
+        * @param account - Target address
+        * @param index - Bucket index value
         * @return Collateral denominated rewards 
     */
     function rewards(address account, uint8 index) public view returns (uint256) {
@@ -161,7 +177,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Outstanding interest helper
-        * @param account Target address
+        * @param account - Target address
         * @return Collateral denominated interest 
     */
     function interestDue(address account, uint8 index) public view returns (uint256) {
@@ -175,8 +191,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Delegated address helper
-        * @param from Target address
-        * @param index Bucket index value
+        * @param from - Target address
+        * @param index - Bucket index value
         * @return Delegate address 
     */
     function delegatedTo(address from, uint8 index) public view returns (address) {
@@ -234,9 +250,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Credit Repayment time helper
-        * @param account User address
-        * @param index Bucket index
-        * @param amount Loan amount
+        * @param account - User address
+        * @param index - Bucket index
+        * @param amount - Loan amount
         * @return Expected repayment time in seconds
     */
     function timeToRepay(address from, uint8 index, uint256 amount) public view returns (uint256) {
@@ -260,77 +276,50 @@ contract LiquidLottery is ILiquidLottery {
         * @dev Oracle state helper
         * @return Oracle state
     */
-    function isOracleReady() public view returns (bool) {
-        if (!_failsafe) {
-            return _lastBlockSync != 0 && _oracle.isRandomized(_lastBlockSync);
-        }
+      function oracleStatus() public view returns (bool success, bool timedOut) {
+        uint256 timeElapsed = block.timestamp - _lastBlockSync;
 
-        return true;
+        success = _lastReqId == 0 && _lastBlockSync != 0;
+        timedOut = _lastReqId != 0 && timeElapsed > VRF_TIMEOUT;
     }
 
-    /*   @dev Oracle state sync                                    */
-    function sync() public payable onlyCycle(Epoch.Closed) {
+   /*   @dev Request randomness from Chainlink VRF                    */
+    function sync() public onlyCycle(Epoch.Closed) {
+        require(_lastReqId == 0, "Already synced");
         require(_lastBlockSync == 0, "Already synced");
 
-        _oracle.randomize{value: msg.value}();
-        _lastBlockSync = block.number;
+        uint256 requestId = _oracle.requestRandomWords(
+            _keyHash,
+            _subscriptionId,
+            REQUEST_CONFIRMATIONS,
+            CALLBACK_GAS_LIMIT,
+            NUM_WORDS
+        );
 
-        emit Sync(block.number, 0);
+        _lastReqId = requestId;
+        _lastBlockSync = block.timestamp;
+
+        emit Sync(block.number, requestId);
     }
 
     /*   @dev Oracle reveal operation                              */
-    function draw() public onlyCycle(Epoch.Closed) {
-        require(isOracleReady(), "Oracle not ready");
+    function draw(uint8 index, bytes32 result) public onlyCycle(Epoch.Closed) {
+        (bool success, bool timedOut) = oracleStatus();
+        bool shouldFallback = timedOut || _failsafe;
 
-        bytes32 entropy;
-        uint8 bucketId;
-
-        try _oracle.fetchRandomnessAfter(_lastBlockSync) returns (bytes32 result) {
-            uint8 index = uint8(uint256(result) % _slots);
-
-            bucketId = index > _slots ? _slots : index;
-            entropy = result;
-        } catch {
-            _failsafe = true;
-        }
+        require(success || shouldFallback, "Request has not been synced"); 
 
         uint256 premium = currentPremium();
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
         uint256 ticketShare = (premium * 2000) / 10000; // 20%
         uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
+        uint8 bucketId  = index > _slots ? _slots : index;
 
-        if (_failsafe) {
+        if (shouldFallback) {
             ticketShare += prizeShare;
             prizeShare = 0;
-        } else {
-            Bucket storage bucket = _buckets[bucketId];
 
-            uint256 prize = scale(prizeShare, _decimalC, _decimalT);
-            uint256 rate = prize * 1e18 / bucket.totalDeposits;
-
-            bucket.rewardCheckpoint += rate;
-        }
-
-        _opfees += coordinatorShare;
-        _reserves += ticketShare;
-
-        emit Roll(block.number, entropy, bucketId, prizeShare);
-    }
-
-    /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
-    function draw(bytes32 result) public onlyCycle(Epoch.Closed) {
-        uint8 index = uint8(uint256(result) % _slots);
-
-        uint8 bucketId = index > _slots ? _slots : index;
-
-        uint256 premium = currentPremium();
-        uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
-        uint256 ticketShare = (premium * 2000) / 10000; // 20%
-        uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
-
-        if (_failsafe) {
-            ticketShare += prizeShare;
-            prizeShare = 0;
+            _lastReqId = 0;
         } else {
             Bucket storage bucket = _buckets[bucketId];
 
@@ -345,11 +334,10 @@ contract LiquidLottery is ILiquidLottery {
 
         emit Roll(block.number, result, bucketId, prizeShare);
     }
-    /* --------------------MOCK FUNCTION ------------------------- */
 
     /*
         * @dev Mint ticket operation
-        * @param amount Issuance value
+        * @param amount - Issuance value
     */
     function mint(uint256 amount) public onlyCycle(Epoch.Open) syncBlock {
         _collateral.transferFrom(msg.sender, address(this), amount);
@@ -368,7 +356,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Burn ticket operation
-        * @param amount Settlement value
+        * @param amount - Settlement value
     */
     function burn(uint256 amount) public onlyCycle(Epoch.Pending) syncBlock {
         uint256 rate = scale(collateralPerShare(), _decimalC, _decimalT);
@@ -386,8 +374,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Redeem rewards operation
-        * @param amount Claim proportion value
-        * @param index Bucket index value
+        * @param amount - Claim proportion value
+        * @param index - Bucket index value
     */
     function claim(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
@@ -411,9 +399,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Open reward credit position
-        * @param from Credit address source
-        * @param index Bucket index value
-        * @param index Collateral denominated position value    
+        * @param from - Credit address source
+        * @param index - Bucket index value
+        * @param index - Collateral denominated position value    
     */
     function leverage(address from, uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
@@ -452,8 +440,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Settle reward credit position
-        * @param index Bucket index value
-        * @param amount Collateral denominated debit value    
+        * @param index - Bucket index value
+        * @param amount - Collateral denominated debit value    
     */
     function repay(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
@@ -487,11 +475,11 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Internal interest repayment handler
-        * @param interest Interest accrued for period
-        * @param premium Current reward premium
-        * @param amount Repayment value
-        * @param note Credit position note
-        * @param vault Stake position vault
+        * @param interest - Interest accrued for period
+        * @param premium - Current reward premium
+        * @param amount - Repayment value
+        * @param note - Credit position note
+        * @param vault - Stake position vault
         * @return Excess repayment for principal
     */
     function selfRepayment(uint256 interest, uint256 premium, uint256 amount, Note storage note, Stake storage vault)
@@ -522,9 +510,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Credit delegation handler
-        * @param to Target delegate address
-        * @param index Bucket index value
-        * @param duration Delegation timelock period
+        * @param to - Target delegate address
+        * @param index - Bucket index value
+        * @param duration - Delegation timelock period
     */
     function delegate(address to, uint8 index, uint256 duration) public {
         Delegate storage delegation = _credit[msg.sender].delegations[index];
@@ -539,8 +527,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Bucket stake operation
-        * @param amount Ticket denominated stake value
-        * @param index Bucket index value
+        * @param amount - Ticket denominated stake value
+        * @param index - Bucket index value
     */
     function stake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
@@ -560,8 +548,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Bucket unstake operation
-        * @param index Bucket index value
-        * @param amount Ticket denominated withdrawal value    
+        * @param index - Bucket index value
+        * @param amount - Ticket denominated withdrawal value    
     */
     function unstake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
@@ -597,8 +585,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Allocate tax rebate
-        * @param account Target rebate address
-        * @param amount Ticket denominated rebate value    
+        * @param account - Target rebate address
+        * @param amount - Ticket denominated rebate value    
     */
     function issueRebate(address account, uint256 amount) public onlyController {
         TaxableERC20(address(_ticket)).rebate(account, amount);
@@ -606,7 +594,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Configure credit apy rate 
-        * @param apy Pool annual per year (APY) rate
+        * @param apy - Pool annual per year (APY) rate
     */
     function setApy(uint256 apy) public onlyController {
         require(apy < 10000, "Invalid apy bps format");
@@ -618,7 +606,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Configure controller
-        * @param controller Target address inheritence  
+        * @param controller - Target address inheritence  
     */
     function setController(address controller) public onlyController {
         _controller = controller;
@@ -628,7 +616,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Configure ticket tax
-        * @param rate Percentage tax value (@ 1BPS = 1000)  
+        * @param rate - Percentage tax value (@ 1BPS = 1000)  
     */
     function setTicketTax(uint256 rate) public onlyController {
         TaxableERC20(address(_ticket)).setTax(rate);
@@ -636,7 +624,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Trigger failsafe mode
-        * @param toggle State value 
+        * @param toggle - State value 
     */
     function setFailsafe(bool toggle) public onlyController {
         _failsafe = toggle;
@@ -645,10 +633,46 @@ contract LiquidLottery is ILiquidLottery {
     }
 
     /*
+        * @dev Chainlink VRF callback 
+        * @param requestId - VRF request identifier 
+        * @param randomWords - Entropy values
+    */
+    function rawFulfillRandomWords(uint256 requestId, uint256[] memory randomWords) external {
+        require(msg.sender == address(_oracle), "Only VRF Coordinator can fulfill");
+        require(requestId == _lastReqId, "Invalid request ID");
+        require(!_requests[requestId], "Request already fulfilled");
+
+        uint8 bucketId = uint8(randomWords[0] % _slots);
+
+        _requests[requestId] = true;
+        _lastReqId = 0;
+
+        draw(bucketId, bytes32(randomWords[0]));
+    }
+
+    /*
+        * @dev Checkpoint state handler
+        * @param vault - Checkpoint address deposit
+        * @param index - Bucket index value
+        * @param amount - Reward value amount scaled 
+        * @param rewards - Rewards value unscaled
+    */
+    function _moveCheckpoint(Stake storage vault, uint8 index, uint256 amount, uint256 rewards) internal {
+        Bucket storage bucket = _buckets[index];
+
+        rewards = scale(rewards, _decimalC, _decimalT);
+
+        uint256 deltaRate = bucket.rewardCheckpoint - vault.checkpoint;
+        uint256 proportion = amount * 1e18 / rewards;
+
+        vault.checkpoint += deltaRate * proportion / 1e18;
+    }
+
+    /*
         * @dev Token decimal rounded interpolation
-        * @param amount Target conversion value
-        * @param d1 Token 'from' decimals
-        * @param d2 Token 'to' decimals
+        * @param amount - Target conversion value
+        * @param d1 - Token 'from' decimals
+        * @param d2 - Token 'to' decimals
         * @return Token 'to' denominated value
     */
     function scale(uint256 amount, uint8 d1, uint8 d2) public view returns (uint256) {
@@ -662,21 +686,4 @@ contract LiquidLottery is ILiquidLottery {
         return amount;
     }
 
-    /*
-        * @dev Checkpoint state handler
-        * @param vault Checkpoint address deposit
-        * @param index Bucket index value
-        * @param amount Reward value amount scaled 
-        * @param rewards Rewards value unscaled
-    */
-    function _moveCheckpoint(Stake storage vault, uint8 index, uint256 amount, uint256 rewards) internal {
-        Bucket storage bucket = _buckets[index];
-
-        rewards = scale(rewards, _decimalC, _decimalT);
-
-        uint256 deltaRate = bucket.rewardCheckpoint - vault.checkpoint;
-        uint256 proportion = amount * 1e18 / rewards;
-
-        vault.checkpoint += deltaRate * proportion / 1e18;
-    }
 }
