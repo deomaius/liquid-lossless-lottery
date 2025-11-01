@@ -335,41 +335,6 @@ contract LiquidLottery is ILiquidLottery {
         emit Roll(block.number, result, bucketId, prizeShare);
     }
 
-    /* ---------------DO NOT USE IN  PRODUCTION ---------------- */
-    function draw(uint256 index, bytes32 result) public onlyCycle(Epoch.Closed) {
-        (bool success, bool timedOut) = oracleStatus();
-        bool shouldFallback = timedOut || _failsafe;
-
-        require(success || shouldFallback, "Request has not been synced"); 
-
-        uint256 premium = currentPremium();
-        uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
-        uint256 ticketShare = (premium * 2000) / 10000; // 20%
-        uint256 prizeShare = premium - coordinatorShare - ticketShare; // 70%
-
-        uint8 bucketId = index > _slots ? _slots : uint8(index);
-
-        if (shouldFallback) {
-            ticketShare += prizeShare;
-            prizeShare = 0; 
-
-            _lastReqId = 0;
-        } else {
-            Bucket storage bucket = _buckets[bucketId];
-
-            uint256 prize = scale(prizeShare, _decimalC, _decimalT);
-            uint256 rate = prize * 1e18 / bucket.totalDeposits;
-
-            bucket.rewardCheckpoint += rate;
-        }
-
-        _opfees += coordinatorShare;
-        _reserves += ticketShare;
-
-        emit Roll(block.number, result, bucketId, prizeShare);
-    }
-    /* --------------------MOCK FUNCTION ------------------------- */
-
     /*
         * @dev Mint ticket operation
         * @param amount - Issuance value
