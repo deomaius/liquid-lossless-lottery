@@ -1,11 +1,9 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
-
 import "@interfaces/IERC20Base.sol";
 import "@root/TaxableERC20.sol";
-
 import "@root/LiquidLottery.sol";
 
 contract LiquidLotteryTest is Test {
@@ -22,41 +20,43 @@ contract LiquidLotteryTest is Test {
     address constant AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
     address constant AAVE_POOL_PROVIDER = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
     address constant TOKEN_USDC_ADDRESS = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address constant TOKEN_AUSDC_ADDRESS = 0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c;
-    address constant WITNET_PROXY_ADDRESS = 0x77703aE126B971c9946d562F41Dd47071dA00777;
-    address constant WITNET_ORACLE_ADDRESS = 0xC0FFEE98AD1434aCbDB894BbB752e138c1006fAB;
+    
+    // Chainlink VRF V2 Coordinator - Mainnet
+    address constant VRF_COORDINATOR = 0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625; 
+    bytes32 constant KEY_HASH = 0x474e34a077df58807dbe9c96d3c009b23b3c6d0cce433e59bbf5b34f823bc56c;
+    uint64 constant SUBSCRIPTION_ID = 1; 
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("ETH_RPC_URL"));
+        vm.deal(COORDINATOR_ADDRESS, 1 ether);
+        vm.deal(COUNTERPARTY_ADDRESS, 1 ether);
+        vm.deal(BENEFACTOR_ADDRESS, 1 ether);
+        vm.deal(CONTROLLER_ADDRESS, 1 ether);
+        vm.deal(msg.sender, 1 ether);
 
-        // Define the address array in the correct order
         address[6] memory addresses = [
-            AAVE_POOL_PROVIDER, // addresses[0]: Aave pool provider
-            WITNET_ORACLE_ADDRESS, // addresses[1]: Witnet oracle
-            AAVE_DATA_PROVIDER, // addresses[2]: Aave data provider
-            CONTROLLER_ADDRESS, // addresses[3]: Lottery controller
-            TOKEN_USDC_ADDRESS, // addresses[4]: Collateral token (USDC)
-            COORDINATOR_ADDRESS // addresses[5]: Lottery coordinator
+            AAVE_POOL_PROVIDER,
+            VRF_COORDINATOR,
+            AAVE_DATA_PROVIDER,
+            CONTROLLER_ADDRESS,
+            TOKEN_USDC_ADDRESS,
+            COORDINATOR_ADDRESS
         ];
 
         _lottery = new LiquidLottery(
             addresses,
             "Test ticket",
             "TICKET",
-            10 ** 6, // ticketBasePrice
-            500, // ticketBaseTax
-            0.5 ether, // limitingLtv
-            1000, // limitingApy
-            4 // bucketSlots
+            10 ** 6,
+            500,
+            0.5 ether,
+            1000,
+            4,
+            KEY_HASH,
+            SUBSCRIPTION_ID
         );
 
         _collateral = IERC20Base(TOKEN_USDC_ADDRESS);
         _ticket = IERC20Base(_lottery._ticket());
-
-        vm.deal(COORDINATOR_ADDRESS, 1 ether);
-        vm.deal(COUNTERPARTY_ADDRESS, 1 ether);
-        vm.deal(BENEFACTOR_ADDRESS, 1 ether);
-        vm.deal(CONTROLLER_ADDRESS, 1 ether);
 
         /* -------------PRANKSTER------------ */
         vm.startPrank(PRANK_ADDRESS);
@@ -66,6 +66,18 @@ contract LiquidLotteryTest is Test {
 
         vm.stopPrank();
         /* --------------------------------- */
+    }
+
+    // Helper function to sync and fulfill VRF in one go
+    function syncAndFulfill(uint256 randomValue) internal {
+        _lottery.sync();
+        uint256 requestId = _lottery._lastReqId();
+        
+        vm.startPrank(VRF_COORDINATOR);
+        uint256[] memory randomWords = new uint256[](1);
+        randomWords[0] = randomValue;
+        _lottery.rawFulfillRandomWords(requestId, randomWords);
+        vm.stopPrank();
     }
 
     function testMint() public {
@@ -81,7 +93,7 @@ contract LiquidLotteryTest is Test {
         vm.stopPrank();
         /* --------------------------------- */
 
-        /* -------------BENEFACTOR------------ */
+        /* -------------COUNTERPARTY------------ */
         vm.startPrank(COUNTERPARTY_ADDRESS);
 
         _collateral.approve(address(_lottery), 1000 * 10 ** 6);
@@ -151,7 +163,7 @@ contract LiquidLotteryTest is Test {
         vm.stopPrank();
         /* --------------------------------- */
 
-        /* -------------BENEFACTOR------------ */
+        /* -------------COUNTERPARTY------------ */
         vm.startPrank(COUNTERPARTY_ADDRESS);
 
         _collateral.approve(address(_lottery), 9999 * 10 ** 6);
@@ -166,23 +178,13 @@ contract LiquidLotteryTest is Test {
 
         vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
-        // Factor for percison loss
-        uint256 premium = _lottery.currentPremium() - 10000;
-
-        /* -------------CONTROLLER------------ */
-        vm.startPrank(CONTROLLER_ADDRESS);
-        vm.recordLogs();
-
-        _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
-
-        Vm.Log[] memory entries = vm.getRecordedLogs();
-
-        assertEq(entries[0].topics[2], bytes32(uint256(2)));
-
-        vm.stopPrank();
-        /* --------------------------------- */
+        // Request VRF and fulfill with predetermined value that results in bucket 2
+        syncAndFulfill(2 + (4 * 12345)); // Will mod to bucket 2
 
         vm.warp(block.timestamp + 12 hours);
+
+        // Factor for precision loss
+        uint256 premium = _lottery.currentPremium() - 10000;
 
         uint256 coordinatorShare = (premium * 1000) / 10000; // 10%
         uint256 ticketShare = (premium * 2000) / 10000; // 20%
@@ -206,7 +208,7 @@ contract LiquidLotteryTest is Test {
         vm.stopPrank();
         /* --------------------------------- */
 
-        /* -------------BENEFACTOR------------ */
+        /* -------------COUNTERPARTY------------ */
         vm.startPrank(COUNTERPARTY_ADDRESS);
 
         _lottery.claim(counterpartyShare, 2);
@@ -220,7 +222,7 @@ contract LiquidLotteryTest is Test {
 
         vm.warp(block.timestamp + 4 days);
 
-        /* -------------BENEFACTOR------------ */
+        /* -------------COUNTERPARTY------------ */
         vm.startPrank(COUNTERPARTY_ADDRESS);
 
         _lottery.unstake(3333 ether, 2);
@@ -278,7 +280,7 @@ contract LiquidLotteryTest is Test {
         vm.stopPrank();
         /* --------------------------------- */
 
-        /* -------------BENEFACTOR------------ */
+        /* -------------COUNTERPARTY------------ */
         vm.startPrank(COUNTERPARTY_ADDRESS);
 
         _collateral.approve(address(_lottery), 3333 * 10 ** 6);
@@ -291,13 +293,8 @@ contract LiquidLotteryTest is Test {
 
         vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
-        /* -------------CONTROLLER------------ */
-        vm.startPrank(CONTROLLER_ADDRESS);
-
-        _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
-
-        vm.stopPrank();
-        /* --------------------------------- */
+        // Request and fulfill VRF
+        syncAndFulfill(2 + (4 * 99999)); // Bucket 2
 
         vm.warp(block.timestamp + 12 hours);
 
@@ -334,13 +331,8 @@ contract LiquidLotteryTest is Test {
 
         vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
-        /* -------------CONTROLLER------------ */
-        vm.startPrank(CONTROLLER_ADDRESS);
-
-        _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
-
-        vm.stopPrank();
-        /* --------------------------------- */
+        // Request and fulfill VRF again
+        syncAndFulfill(2 + (4 * 55555)); // Bucket 2
 
         vm.warp(block.timestamp + 12 hours);
 
@@ -384,23 +376,13 @@ contract LiquidLotteryTest is Test {
 
         vm.warp(block.timestamp + 6 days + 12 hours + 1 minutes);
 
-        /* -------------CONTROLLER------------ */
-        vm.startPrank(CONTROLLER_ADDRESS);
-
-        _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
-
-        vm.stopPrank();
-        /* --------------------------------- */
+        // Request and fulfill VRF
+        syncAndFulfill(2 + (4 * 11111));
 
         vm.warp(block.timestamp + 14 days);
 
-        /* -------------CONTROLLER------------ */
-        vm.startPrank(CONTROLLER_ADDRESS);
-
-        _lottery.draw(0xf8e26f279ea45fd39902669f33626cbc6ddd1fd2ec78e38979912ded9f332c76);
-
-        vm.stopPrank();
-        /* --------------------------------- */
+        // Request and fulfill VRF again
+        syncAndFulfill(2 + (4 * 22222));
 
         vm.warp(block.timestamp + 12 hours);
 
@@ -427,12 +409,12 @@ contract LiquidLotteryTest is Test {
         uint256 postCredit = _lottery.credit(COUNTERPARTY_ADDRESS, 2, BENEFACTOR_ADDRESS);
         uint256 postRewards = _lottery.rewards(BENEFACTOR_ADDRESS, 2);
 
-        uint256 diff = postCredit - preCredit / 2; // 465
+        uint256 diff = postCredit - preCredit / 2;
         uint256 basisPoints = (diff * 10000) / preCredit;
         uint256 expectedCredit = preCredit / 2 + ((preCredit * basisPoints) / 10000);
 
         assertEq(postBalance, 10000 * 10 ** 6 + preCredit / 2);
-        // Percision loss makes post > actual
+        // Precision loss makes post > actual
         assertGt(postCredit, expectedCredit);
 
         vm.stopPrank();
