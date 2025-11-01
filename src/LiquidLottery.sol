@@ -24,14 +24,14 @@ contract LiquidLottery is ILiquidLottery {
     uint8 public _decimalT;
     address public _controller;
 
-    uint256 public immutable _start;
-    uint256 public immutable _limitLtv;
-    uint256 public immutable _reservePrice;
     uint256 public _opfees;
     uint256 public _limitApy;
     uint256 public _reserves;
     uint256 public _lastReqId;
     uint256 public _lastBlockSync;
+    uint256 public immutable _start;
+    uint256 public immutable _limitLtv;
+    uint256 public immutable _reservePrice;
 
     address public immutable _coordinator;
 
@@ -41,14 +41,14 @@ contract LiquidLottery is ILiquidLottery {
     IAaveLendingPool public immutable _pool;
     IVRFCoordinatorV2 public immutable _oracle;
 
+    // Chainlink VRF V2 parameters
+    bytes32 public immutable _keyHash;
+    uint64 public immutable _subscriptionId;
+
     mapping(uint8 => Bucket) public _buckets;
     mapping(address => Credit) public _credit;
     mapping(uint256 => bool) public _requests;
     mapping(address => mapping(uint256 => Stake)) public _stakes;
-
-    // Chainlink VRF V2 parameters
-    bytes32 public immutable _keyHash;
-    uint64 public immutable _subscriptionId;
 
     uint16 public constant REQUEST_CONFIRMATIONS = 3;
     uint32 public constant CALLBACK_GAS_LIMIT = 200000;
@@ -110,7 +110,7 @@ contract LiquidLottery is ILiquidLottery {
         _;
     }
 
-    /*    @dev Control statement for a epoch pnase        */
+    /*    @dev Control statement for an epoch pnase        */
     modifier onlyCycle(Epoch e) {
         require(currentEpoch() == e, "Invalid epoch");
         _;
@@ -131,7 +131,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Outstanding debt helper
-        * @param account Target address
+        * @param account - Target address
         * @return Collateral denominated debt
     */
     function debt(address account, uint8 index) public view returns (uint256) {
@@ -143,9 +143,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Active credit helper
-        * @param account Target address
-        * @param index Bucket index value
-        * @param index Delegator address
+        * @param account - Target address
+        * @param index - Bucket index value
+        * @param index - Delegator address
         * @return Collateral denominated credit
     */
     function credit(address account, uint8 index, address delegator) public view returns (uint256) {
@@ -160,8 +160,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Unclaimed rewards helper
-        * @param account Target address
-        * @param index Bucket index value
+        * @param account - Target address
+        * @param index - Bucket index value
         * @return Collateral denominated rewards 
     */
     function rewards(address account, uint8 index) public view returns (uint256) {
@@ -177,7 +177,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Outstanding interest helper
-        * @param account Target address
+        * @param account - Target address
         * @return Collateral denominated interest 
     */
     function interestDue(address account, uint8 index) public view returns (uint256) {
@@ -191,8 +191,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Delegated address helper
-        * @param from Target address
-        * @param index Bucket index value
+        * @param from - Target address
+        * @param index - Bucket index value
         * @return Delegate address 
     */
     function delegatedTo(address from, uint8 index) public view returns (address) {
@@ -250,9 +250,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Credit Repayment time helper
-        * @param account User address
-        * @param index Bucket index
-        * @param amount Loan amount
+        * @param account - User address
+        * @param index - Bucket index
+        * @param amount - Loan amount
         * @return Expected repayment time in seconds
     */
     function timeToRepay(address from, uint8 index, uint256 amount) public view returns (uint256) {
@@ -372,7 +372,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Mint ticket operation
-        * @param amount Issuance value
+        * @param amount - Issuance value
     */
     function mint(uint256 amount) public onlyCycle(Epoch.Open) syncBlock {
         _collateral.transferFrom(msg.sender, address(this), amount);
@@ -391,7 +391,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Burn ticket operation
-        * @param amount Settlement value
+        * @param amount - Settlement value
     */
     function burn(uint256 amount) public onlyCycle(Epoch.Pending) syncBlock {
         uint256 rate = scale(collateralPerShare(), _decimalC, _decimalT);
@@ -409,8 +409,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Redeem rewards operation
-        * @param amount Claim proportion value
-        * @param index Bucket index value
+        * @param amount - Claim proportion value
+        * @param index - Bucket index value
     */
     function claim(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
@@ -434,9 +434,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Open reward credit position
-        * @param from Credit address source
-        * @param index Bucket index value
-        * @param index Collateral denominated position value    
+        * @param from - Credit address source
+        * @param index - Bucket index value
+        * @param index - Collateral denominated position value    
     */
     function leverage(address from, uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
@@ -475,8 +475,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Settle reward credit position
-        * @param index Bucket index value
-        * @param amount Collateral denominated debit value    
+        * @param index - Bucket index value
+        * @param amount - Collateral denominated debit value    
     */
     function repay(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         Stake storage vault = _stakes[msg.sender][index];
@@ -510,11 +510,11 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Internal interest repayment handler
-        * @param interest Interest accrued for period
-        * @param premium Current reward premium
-        * @param amount Repayment value
-        * @param note Credit position note
-        * @param vault Stake position vault
+        * @param interest - Interest accrued for period
+        * @param premium - Current reward premium
+        * @param amount - Repayment value
+        * @param note - Credit position note
+        * @param vault - Stake position vault
         * @return Excess repayment for principal
     */
     function selfRepayment(uint256 interest, uint256 premium, uint256 amount, Note storage note, Stake storage vault)
@@ -545,9 +545,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Credit delegation handler
-        * @param to Target delegate address
-        * @param index Bucket index value
-        * @param duration Delegation timelock period
+        * @param to - Target delegate address
+        * @param index - Bucket index value
+        * @param duration - Delegation timelock period
     */
     function delegate(address to, uint8 index, uint256 duration) public {
         Delegate storage delegation = _credit[msg.sender].delegations[index];
@@ -562,8 +562,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Bucket stake operation
-        * @param amount Ticket denominated stake value
-        * @param index Bucket index value
+        * @param amount - Ticket denominated stake value
+        * @param index - Bucket index value
     */
     function stake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
@@ -583,8 +583,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Bucket unstake operation
-        * @param index Bucket index value
-        * @param amount Ticket denominated withdrawal value    
+        * @param index - Bucket index value
+        * @param amount - Ticket denominated withdrawal value    
     */
     function unstake(uint256 amount, uint8 index) public notCycle(Epoch.Closed) {
         require(index <= _slots, "Invalid bucket index");
@@ -620,8 +620,8 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Allocate tax rebate
-        * @param account Target rebate address
-        * @param amount Ticket denominated rebate value    
+        * @param account - Target rebate address
+        * @param amount - Ticket denominated rebate value    
     */
     function issueRebate(address account, uint256 amount) public onlyController {
         TaxableERC20(address(_ticket)).rebate(account, amount);
@@ -629,7 +629,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Configure credit apy rate 
-        * @param apy Pool annual per year (APY) rate
+        * @param apy - Pool annual per year (APY) rate
     */
     function setApy(uint256 apy) public onlyController {
         require(apy < 10000, "Invalid apy bps format");
@@ -641,7 +641,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Configure controller
-        * @param controller Target address inheritence  
+        * @param controller - Target address inheritence  
     */
     function setController(address controller) public onlyController {
         _controller = controller;
@@ -651,7 +651,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Configure ticket tax
-        * @param rate Percentage tax value (@ 1BPS = 1000)  
+        * @param rate - Percentage tax value (@ 1BPS = 1000)  
     */
     function setTicketTax(uint256 rate) public onlyController {
         TaxableERC20(address(_ticket)).setTax(rate);
@@ -659,7 +659,7 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Trigger failsafe mode
-        * @param toggle State value 
+        * @param toggle - State value 
     */
     function setFailsafe(bool toggle) public onlyController {
         _failsafe = toggle;
@@ -667,6 +667,11 @@ contract LiquidLottery is ILiquidLottery {
         emit Failsafe(toggle);
     }
 
+    /*
+        * @dev Chainlink VRF callback 
+        * @param requestId - VRF request identifier 
+        * @param randomWords - Entropy values
+    */
     function rawFulfillRandomWords(uint256 requestId, uint256[] memory randomWords) external {
         require(msg.sender == address(_oracle), "Only VRF Coordinator can fulfill");
         require(requestId == _lastReqId, "Invalid request ID");
@@ -682,10 +687,10 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Checkpoint state handler
-        * @param vault Checkpoint address deposit
-        * @param index Bucket index value
-        * @param amount Reward value amount scaled 
-        * @param rewards Rewards value unscaled
+        * @param vault - Checkpoint address deposit
+        * @param index - Bucket index value
+        * @param amount - Reward value amount scaled 
+        * @param rewards - Rewards value unscaled
     */
     function _moveCheckpoint(Stake storage vault, uint8 index, uint256 amount, uint256 rewards) internal {
         Bucket storage bucket = _buckets[index];
@@ -700,9 +705,9 @@ contract LiquidLottery is ILiquidLottery {
 
     /*
         * @dev Token decimal rounded interpolation
-        * @param amount Target conversion value
-        * @param d1 Token 'from' decimals
-        * @param d2 Token 'to' decimals
+        * @param amount - Target conversion value
+        * @param d1 - Token 'from' decimals
+        * @param d2 - Token 'to' decimals
         * @return Token 'to' denominated value
     */
     function scale(uint256 amount, uint8 d1, uint8 d2) public view returns (uint256) {
