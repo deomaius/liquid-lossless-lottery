@@ -3,12 +3,14 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "@interfaces/IERC20Base.sol";
+import "@interfaces/IVRFCoordinatorV2.sol";
 import "@root/TaxableERC20.sol";
 import "@root/LiquidLottery.sol";
 
 contract LiquidLotteryTest is Test {
     IERC20Base _ticket;
     IERC20Base _collateral;
+    IVRFCoordinatorV2 _oracle;
     LiquidLottery public _lottery;
 
     address constant PRANK_ADDRESS = 0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341;
@@ -22,7 +24,7 @@ contract LiquidLotteryTest is Test {
     address constant TOKEN_USDC_ADDRESS = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     
     // Chainlink VRF V2 Coordinator - Mainnet
-    address constant VRF_COORDINATOR = 0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625; 
+    address constant VRF_COORDINATOR = 0x271682DEB8C4E0901D1a1550aD2e64D568E69909; 
     bytes32 constant KEY_HASH = 0x474e34a077df58807dbe9c96d3c009b23b3c6d0cce433e59bbf5b34f823bc56c;
     uint64 constant SUBSCRIPTION_ID = 1; 
 
@@ -42,6 +44,7 @@ contract LiquidLotteryTest is Test {
             COORDINATOR_ADDRESS
         ];
 
+
         _lottery = new LiquidLottery(
             addresses,
             "Test ticket",
@@ -55,8 +58,19 @@ contract LiquidLotteryTest is Test {
             SUBSCRIPTION_ID
         );
 
+        _oracle = IVRFCoordinatorV2(VRF_COORDINATOR);
         _collateral = IERC20Base(TOKEN_USDC_ADDRESS);
         _ticket = IERC20Base(_lottery._ticket());
+
+        /* -------------CONSUMER------------ */
+        (, , address subOwner, ) = _oracle.getSubscription(SUBSCRIPTION_ID);
+
+        vm.startPrank(subOwner);
+
+        _oracle.addConsumer(1, address(_lottery));
+
+        vm.stopPrank();
+        /* --------------------------------- */
 
         /* -------------PRANKSTER------------ */
         vm.startPrank(PRANK_ADDRESS);
